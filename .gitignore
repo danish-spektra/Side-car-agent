@@ -66,4 +66,5 @@ __pycache__/
 
 # scratch
 orchestrator/data/
+orchestrator/static/
 .superpowers/
