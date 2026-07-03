@@ -196,11 +196,17 @@ wall). No billing engine now; the log *is* the foundation.
 
 ## 11. Roadmap (explicitly out of scope now)
 
+> **Update 2026-07-03:** items 1 and (a one-shot variant of) live-screen help were
+> pulled INTO scope as the "screen companion": annotated guide screenshots and an
+> explicit "Include my screen" one-shot capture, both rendered in chat. Approved
+> decisions: explicit capture button (consent-first), in-chat rendering (no OS
+> overlay), Pillow-drawn boxes via marker protocol on the existing chat deployment.
+
 Ordered by tractability:
-1. **Screenshot annotation** — on "where is X", return the relevant guide screenshot
-   (already resolved at ingest, §6.3) with a highlight rectangle. A vision model
-   locates the element → bounding box → drawn overlay. Most tractable future feature.
-2. **Image generation** — synthesize a pointer/diagram when no guide screenshot fits.
+1. **Continuous live overlay** — persistent screen watch + transparent always-on-top
+   overlay drawing on the live screen. The hard part deferred from the companion.
+2. **Image generation** — synthesize a pointer/diagram when no guide screenshot fits
+   (`gpt-image-2` reserved for this).
 3. **Browser control** — agent drives the learner's browser (Playwright-style) to the
    right screen. Powerful but must stay within "guide, don't solve."
 4. **Local in-VM index** — only if guides grow large or multi-guide search is needed.

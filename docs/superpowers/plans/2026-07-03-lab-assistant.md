@@ -1818,6 +1818,49 @@ git commit -m "feat: local E2E harness and README"
 
 ---
 
+### Task 15: Screen-companion backend — annotation + live screenshot support
+
+*(Added post-approval: product owner selected Tier A + B — annotated guide screenshots and explicit one-shot live screen capture, rendered in chat. No new Azure resources; Pillow draws boxes; marker protocol instead of tool-calling.)*
+
+**Files:**
+- Create: `orchestrator/app/annotate.py`, `orchestrator/tests/test_annotate.py`
+- Modify: `orchestrator/app/query.py` (system prompt + build_messages screen support), `orchestrator/app/main.py` (query endpoint), `orchestrator/requirements.txt` (add `pillow`)
+- Modify: `orchestrator/tests/test_api_query.py` (annotation + screen tests)
+
+**Interfaces:**
+- Consumes: Task 9 query flow, `app.state.fetch`, `app.state.oai`.
+- Produces:
+  - `annotate.locate_element(client, deployment, image_bytes, target, mime="image/png") -> list[int] | None` — vision call returning `[x0,y0,x1,y1]` pixel box or None (parses `{"found":bool,"box":[...]}` JSON from the reply, `re.search` for the JSON blob).
+  - `annotate.draw_box(image_bytes, box) -> bytes` — PNG with a 4px red (255,59,48) rectangle.
+  - `QueryRequest` gains `screen_b64: str | None = None`. When present, the user message content becomes multimodal: `[{"type":"text","text":question},{"type":"image_url","image_url":{"url":"data:image/png;base64,<screen_b64>"}}]` via `build_messages(guide, learn, question, screen_b64=None)`.
+  - System prompt addition (verbatim):
+    ```
+    If the learner asks WHERE something is and one of the guide's screenshots
+    (the "(image: ...)" lines) shows it, end your answer with a final line:
+    ANNOTATE: <that image url> | <short description of the element to highlight>
+    If the learner attached their live screen and the element is visible there,
+    end with: ANNOTATE: LIVE | <short description>
+    Otherwise never output an ANNOTATE line.
+    ```
+  - Query response gains optional `"annotation": {"image_b64": str, "label": str}`; the `ANNOTATE:` line is stripped from `answer`. Marker parsing: last line startswith `ANNOTATE:`; `LIVE` uses the request's screen bytes, else `app.state.fetch(url)`. Whole annotation step wrapped in try/except — any failure returns the text answer unchanged.
+- Tests: fake OAI client returning scripted responses per call (list-pop); a tiny real PNG generated with Pillow in the test; assert (1) ANNOTATE-with-url yields annotation payload and stripped answer, (2) LIVE path uses screen_b64, (3) locate-failure degrades to text-only, (4) screen_b64 produces multimodal user content.
+- Commit: `feat: screen companion — guide/live annotation and screenshot queries`
+
+### Task 16: Screen-companion sidecar — capture button + annotated-image rendering
+
+**Files:**
+- Modify: `sidecar/go.mod` (add `github.com/kbinani/screenshot`), `sidecar/main.go`, `sidecar/ui/index.html`, `sidecar/main_test.go`
+
+**Interfaces:**
+- Consumes: Task 15's `screen_b64` request field and `annotation` response field.
+- Produces:
+  - `newAskHandler(cfg Config, client *http.Client, capture func() (string, error)) http.HandlerFunc` — third param injectable; nil means screen capture unavailable. `/ask` body gains `"include_screen": bool`; when true and capture non-nil, its base64 PNG goes to the orchestrator as `screen_b64`. Capture errors degrade to text-only (proceed without screen, add `"screen_error"` to the proxied response envelope? No — keep passthrough pure: on capture error just omit screen_b64).
+  - `captureScreen() (string, error)` — `screenshot.CaptureDisplay(0)` → PNG → base64. Called only on demand.
+  - UI: "🖥 Include my screen" toggle chip by the input (active state styled, tooltip "sends a one-time screenshot of this VM's screen with your question"); message bubble shows a small "screen attached" badge; `annotation.image_b64` rendered as an `<img>` (data URL) in the assistant bubble with `label` as caption, click-to-open-full-size.
+  - Existing two tests updated to pass `nil` capture; new test: `include_screen: true` with a fake capture func asserts `screen_b64` reaches the fake orchestrator; capture-error case asserts question still proxied without `screen_b64`.
+- After commit, re-run `sidecar/build.ps1` so `orchestrator/static/sidecar.zip` contains the new binary.
+- Commit: `feat: sidecar screen capture and annotation rendering`
+
 ## Self-Review
 
 - **Spec coverage:** ingest (masterdoc order, dynamic image resolution, captions-at-ingest, inject tokens) → Tasks 3–5, 9; isolation/keys → Tasks 2, 8, 9; metering with `deploymentID` → Task 7, 9; portal flow → Task 10; thin sidecar on 127.0.0.1 → Task 11; VM install idiom + ARM params → Task 12; azd → Task 13; no AI Search → nowhere (correct); ephemerality → per-event storage; explicit teardown endpoint deferred (delete the RG / data dir — noted as acceptable for hackathon).
