@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab Assistant</title>
+<style>
+:root {
+  --bg: #f4f6fb;
+  --surface: #ffffff;
+  --surface-2: #f0f2f9;
+  --text: #17203a;
+  --text-muted: #5a648a;
+  --border: #dde2f0;
+  --accent: #4f5dff;
+  --accent-2: #22b8e6;
+  --accent-grad: linear-gradient(135deg, #4f5dff 0%, #22b8e6 100%);
+  --danger: #d64545;
+  --danger-bg: #fbeaea;
+  --code-bg: #eef0f8;
+  --shadow: 0 1px 3px rgba(23, 32, 58, .06), 0 8px 28px rgba(23, 32, 58, .07);
+  --ring: rgba(79, 93, 255, .35);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1120;
+    --surface: #151b30;
+    --surface-2: #1c2340;
+    --text: #e7eafb;
+    --text-muted: #8b93b8;
+    --border: #2a3355;
+    --accent: #7b86ff;
+    --accent-2: #3fd0f5;
+    --accent-grad: linear-gradient(135deg, #6a76ff 0%, #2cc3ee 100%);
+    --danger: #ff7b7b;
+    --danger-bg: rgba(255, 123, 123, .12);
+    --code-bg: #10162b;
+    --shadow: 0 1px 3px rgba(0, 0, 0, .4), 0 10px 32px rgba(0, 0, 0, .45);
+    --ring: rgba(123, 134, 255, .4);
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  flex: none;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  position: relative;
+  z-index: 1;
+}
+.header-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: .8rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+}
+.mark {
+  flex: none;
+  width: 38px; height: 38px;
+  border-radius: 11px;
+  background: var(--accent-grad);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.15rem;
+  box-shadow: 0 4px 14px var(--ring);
+}
+.title-block h1 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  margin: 0;
+}
+.title-block .tagline {
+  font-size: .78rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+main {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.thread {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: .9rem;
+}
+
+.welcome {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 1.5rem 1.75rem;
+  margin-top: 1rem;
+}
+.welcome h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  margin: 0 0 .35rem;
+}
+.welcome h2 .grad {
+  background: var(--accent-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.welcome p { color: var(--text-muted); font-size: .9rem; margin: 0 0 1rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .5rem; }
+.chip {
+  font: inherit;
+  font-size: .85rem;
+  color: var(--accent);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: .45rem .95rem;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.chip:hover { border-color: var(--accent); }
+
+.msg { display: flex; flex-direction: column; max-width: 85%; }
+.msg.user { align-self: flex-end; align-items: flex-end; }
+.msg.assistant { align-self: flex-start; align-items: flex-start; }
+.bubble {
+  padding: .65rem 1rem;
+  border-radius: 16px;
+  font-size: .925rem;
+  overflow-wrap: break-word;
+  max-width: 100%;
+}
+.msg.user .bubble {
+  background: var(--accent-grad);
+  color: #fff;
+  border-bottom-right-radius: 5px;
+  white-space: pre-wrap;
+}
+.msg.assistant .bubble {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  border-bottom-left-radius: 5px;
+}
+.msg.assistant .bubble.error {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.bubble code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: .85em;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: .08em .35em;
+}
+.bubble ul { margin: .35rem 0; padding-left: 1.25rem; }
+.bubble a { color: var(--accent); }
+
+.sources { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .45rem; }
+.src-pill {
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: .25rem .7rem;
+  text-decoration: none;
+  transition: border-color .15s;
+}
+.src-pill:hover { border-color: var(--accent); }
+
+.typing { display: inline-flex; gap: .3rem; align-items: center; padding: .35rem 0; }
+.typing span {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: blink 1.2s infinite ease-in-out;
+}
+.typing span:nth-child(2) { animation-delay: .2s; }
+.typing span:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 60%, 100% { opacity: .25; } 30% { opacity: 1; } }
+
+.composer {
+  flex: none;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+.composer-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: .85rem 1.25rem 1.1rem;
+  display: flex;
+  gap: .6rem;
+  align-items: flex-end;
+}
+textarea {
+  flex: 1;
+  font: inherit;
+  font-size: .925rem;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: .6rem .85rem;
+  outline: none;
+  resize: none;
+  max-height: 8rem;
+  transition: border-color .15s, box-shadow .15s;
+}
+textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+textarea::placeholder { color: var(--text-muted); opacity: .7; }
+textarea:disabled { opacity: .6; }
+#send {
+  flex: none;
+  font: inherit;
+  font-size: .925rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-grad);
+  border: none;
+  border-radius: 12px;
+  padding: .6rem 1.25rem;
+  cursor: pointer;
+  transition: filter .15s, transform .1s;
+}
+#send:hover:not(:disabled) { filter: brightness(1.08); }
+#send:active:not(:disabled) { transform: translateY(1px); }
+#send:disabled { opacity: .55; cursor: not-allowed; }
+
+@media (max-width: 560px) {
+  .msg { max-width: 95%; }
+  .welcome { padding: 1.2rem 1.25rem; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <div class="mark" aria-hidden="true">&#x1F6DF;</div>
+    <div class="title-block">
+      <h1>Lab Assistant</h1>
+      <p class="tagline">grounded in your lab guide</p>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <div class="thread" id="thread">
+    <div class="welcome" id="welcome">
+      <h2>Stuck? <span class="grad">Ask away.</span></h2>
+      <p>Answers come from <em>your</em> lab guide and MS Learn. I explain and point — I won't do the steps for you.</p>
+      <div class="chips">
+        <button class="chip" onclick="suggest(this)">I'm stuck on Task 2</button>
+        <button class="chip" onclick="suggest(this)">Where do I find the option mentioned in Exercise 1?</button>
+        <button class="chip" onclick="suggest(this)">What does this error in the portal mean?</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="composer">
+  <div class="composer-inner">
+    <textarea id="q" rows="1" placeholder="Ask about your lab&hellip;" autofocus></textarea>
+    <button id="send" onclick="ask()">Ask</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// ponytail: tiny sanitizing markdown — escape first, then bold/code/links/bullets. Full CommonMark never needed here.
+function md(s) {
+  let h = esc(s);
+  h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  h = h.replace(/(^|\n)((?:[-*] .*(?:\n|$))+)/g, (m, pre, block) =>
+    pre + '<ul>' + block.trim().split('\n').map(l =>
+      '<li>' + l.replace(/^[-*] /, '') + '</li>').join('') + '</ul>');
+  return h.replace(/\n{2,}/g, '<br><br>').replace(/\n/g, '<br>');
+}
+
+function add(role, html) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.innerHTML = html;
+  $('thread').appendChild(div);
+  $('main').scrollTop = $('main').scrollHeight;
+  return div;
+}
+
+function suggest(chip) {
+  $('q').value = chip.textContent;
+  ask();
+}
+
+function setBusy(busy) {
+  $('q').disabled = busy;
+  $('send').disabled = busy;
+  if (!busy) $('q').focus();
+}
+
+async function ask() {
+  const q = $('q').value.trim();
+  if (!q || $('send').disabled) return;
+  const welcome = $('welcome');
+  if (welcome) welcome.remove();
+  $('q').value = '';
+  $('q').style.height = 'auto';
+  add('user', '<div class="bubble">' + esc(q) + '</div>');
+  const wait = add('assistant',
+    '<div class="bubble"><span class="typing"><span></span><span></span><span></span></span></div>');
+  setBusy(true);
+  try {
+    const r = await fetch('/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: q })
+    });
+    let body = null;
+    try { body = await r.json(); } catch {}
+    if (!r.ok || !body || !body.answer) {
+      const why = r.status === 502
+        ? "I can't reach the lab service right now. Give it a moment and try again."
+        : "Something went wrong on the lab service (status " + r.status + "). Please try again.";
+      wait.innerHTML = '<div class="bubble error">' + why + '</div>';
+      return;
+    }
+    let html = '<div class="bubble">' + md(body.answer) + '</div>';
+    if (body.sources && body.sources.length) {
+      html += '<div class="sources">' + body.sources.map(s =>
+        '<a class="src-pill" href="' + esc(s.url) + '" target="_blank" rel="noopener">' +
+        esc(s.title || 'MS Learn') + '</a>').join('') + '</div>';
+    }
+    wait.innerHTML = html;
+  } catch (e) {
+    wait.innerHTML = '<div class="bubble error">I couldn\'t reach the assistant. Check that the Lab Assistant service is running, then try again.</div>';
+  } finally {
+    setBusy(false);
+    $('main').scrollTop = $('main').scrollHeight;
+  }
+}
+
+$('q').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
+});
+$('q').addEventListener('input', function () {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 128) + 'px';
+});
+</script>
+</body>
+</html>
