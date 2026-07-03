@@ -1,0 +1,6 @@
+name: cloudlabs-lab-assistant
+services:
+  orchestrator:
+    project: ./orchestrator
+    language: python
+    host: appservice
