@@ -45,6 +45,14 @@ question is still sent text-only.
 azd up          # provisions App Service + Azure OpenAI + Storage on your sub
 ```
 
+Note: the Bicep is resource-group scoped, so enable the azd alpha feature first
+with `azd config set alpha.resourceGroupDeployments on`, and pick the target
+resource group during `azd up` (set the `AZURE_RESOURCE_GROUP` environment
+value when prompted, or via `azd env set AZURE_RESOURCE_GROUP <rg-name>`).
+
+Set `INSTRUCTOR_KEY` (azd parameter `instructorKey`) to gate event creation;
+leave it empty for open local dev.
+
 ## Wire a CloudLabs lab
 
 1. Portal prints `sidecarEventID / sidecarEndpoint / sidecarKey` after ingest.

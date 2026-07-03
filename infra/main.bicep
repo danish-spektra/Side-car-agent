@@ -7,6 +7,8 @@ param environmentName string
 param chatModelName string = 'gpt-4o'
 param chatModelVersion string = '2024-11-20'
 param chatDeploymentName string = 'chat'
+@secure()
+param instructorKey string = ''
 
 var suffix = uniqueString(resourceGroup().id, environmentName)
 
@@ -60,6 +62,7 @@ resource site 'Microsoft.Web/sites@2023-01-01' = {
         { name: 'AZURE_OPENAI_CHAT_DEPLOYMENT', value: chatDeploymentName }
         { name: 'STORAGE_BACKEND', value: 'blob' }
         { name: 'AZURE_STORAGE_CONNECTION_STRING', value: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}' }
+        { name: 'INSTRUCTOR_KEY', value: instructorKey }
         { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }
       ]
     }

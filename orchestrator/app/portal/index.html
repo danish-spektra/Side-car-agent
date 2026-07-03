@@ -364,6 +364,13 @@ function showError(id, msg) {
 }
 function clearError(id) { $(id).classList.remove('show'); }
 
+function postCreate(name) {
+  const headers = { 'Content-Type': 'application/json' };
+  const key = sessionStorage.getItem('instructorKey');
+  if (key) headers['X-Instructor-Key'] = key;
+  return fetch('/api/events', { method: 'POST', headers, body: JSON.stringify({ name }) });
+}
+
 async function createEvent() {
   const name = $('name').value.trim();
   clearError('create-error');
@@ -371,11 +378,12 @@ async function createEvent() {
   const btn = $('create-btn');
   setBusy(btn, true);
   try {
-    const r = await fetch('/api/events', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name })
-    });
+    let r = await postCreate(name);
+    if (r.status === 401) {
+      const key = window.prompt('Instructor key');
+      if (key) sessionStorage.setItem('instructorKey', key);
+      r = await postCreate(name);
+    }
     const body = await r.json();
     if (!r.ok) throw new Error(body.detail ? JSON.stringify(body.detail) : r.statusText);
     ev = body;

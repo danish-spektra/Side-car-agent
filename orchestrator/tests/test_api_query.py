@@ -51,7 +51,9 @@ def client(tmp_path):
 
 def _make_ready_event(client):
     ev = client.post("/api/events", json={"name": "d"}).json()
-    app.state.storage.save_text(ev["event_id"], "guide.md", "# Exercise 1\nTask 2: click the left menu")
+    app.state.storage.save_text(
+        ev["event_id"], "guide.md",
+        "# Exercise 1\nTask 2: click the left menu\n(image: https://x/shot.png)")
     return ev
 
 def test_query_answers_and_meters(client):
@@ -137,6 +139,19 @@ def test_annotate_locate_failure_degrades_to_text(client):
         "no json in sight",
     ])
     app.state.fetch = lambda url: _tiny_png()
+    r = _query(client, ev)
+    body = r.json()
+    assert body["answer"] == "Answer text."
+    assert not body.get("annotation")
+
+def test_annotate_url_not_in_guide_is_ignored_and_not_fetched(client):
+    ev = _make_ready_event(client)
+    app.state.oai = FakeOAI(scripts=[
+        "Answer text.\nANNOTATE: https://evil.example/steal.png | the thing",
+    ])
+    def boom(url):
+        raise AssertionError("must not fetch a URL that is not in the guide")
+    app.state.fetch = boom
     r = _query(client, ev)
     body = r.json()
     assert body["answer"] == "Answer text."

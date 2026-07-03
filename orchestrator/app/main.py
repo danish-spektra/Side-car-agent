@@ -1,5 +1,6 @@
 import base64
 import json
+import secrets
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
@@ -23,7 +24,8 @@ def _wire():
         app.state.storage = get_storage(settings)
     if not hasattr(app.state, "fetch"):
         app.state.fetch = ingest_mod.http_fetch
-    if not hasattr(app.state, "caption_fn"):
+    # ponytail: no endpoint = no client (tests inject their own; prod always has env)
+    if not hasattr(app.state, "caption_fn") and settings.azure_openai_endpoint:
         from app.captioner import Captioner, make_openai_client
         oai = make_openai_client(settings)
         app.state.oai = oai
@@ -51,7 +53,11 @@ class CreateEventRequest(BaseModel):
     name: str
 
 @app.post("/api/events")
-def create_event_endpoint(req: CreateEventRequest):
+def create_event_endpoint(req: CreateEventRequest,
+                          x_instructor_key: str = Header(default="")):
+    expected = get_settings().instructor_key
+    if expected and not secrets.compare_digest(x_instructor_key, expected):
+        raise HTTPException(401, "bad instructor key")
     return create_event(app.state.storage, req.name)
 
 class IngestRequest(BaseModel):
@@ -82,12 +88,14 @@ class QueryRequest(BaseModel):
     question: str
     screen_b64: str | None = None
 
-def _annotate(req: QueryRequest, marker: str, deployment: str) -> dict | None:
+def _annotate(req: QueryRequest, marker: str, deployment: str, guide: str) -> dict | None:
     url, _, label = marker.partition("|")
     url, label = url.strip(), label.strip()
     if url == "LIVE":
         image, mime = base64.b64decode(req.screen_b64), "image/png"
     else:
+        if url not in guide:   # SSRF guard: only fetch URLs the guide itself references
+            return None
         image, mime = app.state.fetch(url), ingest_mod._mime_for(url)
     box = annotate_mod.locate_element(app.state.oai, deployment, image, label, mime=mime)
     if box is None:
@@ -117,14 +125,14 @@ def query_endpoint(req: QueryRequest, x_event_key: str = Header(default="")):
     # (when the SDK reports it) if annotation cost ever matters.
     metering.record(storage, req.event_id, req.deployment_id,
                     usage.prompt_tokens, usage.completion_tokens)
-    answer = resp.choices[0].message.content
+    answer = resp.choices[0].message.content or ""  # content-filtered replies return None
     result = {"answer": answer, "sources": learn_results}
     lines = answer.rstrip().splitlines()
     if lines and lines[-1].startswith("ANNOTATE:"):
         result["answer"] = "\n".join(lines[:-1]).rstrip()
         try:
             annotation = _annotate(req, lines[-1][len("ANNOTATE:"):],
-                                    settings.azure_openai_chat_deployment)
+                                    settings.azure_openai_chat_deployment, guide)
         except Exception:
             annotation = None
         if annotation:
