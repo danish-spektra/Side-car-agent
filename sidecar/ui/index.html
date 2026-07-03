@@ -189,6 +189,55 @@ main {
   transition: border-color .15s;
 }
 .src-pill:hover { border-color: var(--accent); }
+span.src-pill { cursor: default; }
+span.src-pill:hover { border-color: var(--border); }
+
+.screen-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-top: .3rem;
+}
+
+.annotation { margin-top: .55rem; }
+.annotation img {
+  display: block;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: zoom-in;
+  box-shadow: var(--shadow);
+}
+.annotation figcaption {
+  font-size: .75rem;
+  color: var(--text-muted);
+  margin-top: .3rem;
+}
+
+.screen-toggle {
+  flex: none;
+  font: inherit;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: .45rem .8rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.screen-toggle:hover { border-color: var(--accent); }
+.screen-toggle.on {
+  color: #fff;
+  background: var(--accent-grad);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px var(--ring);
+}
 
 .typing { display: inline-flex; gap: .3rem; align-items: center; padding: .35rem 0; }
 .typing span {
@@ -281,6 +330,8 @@ textarea:disabled { opacity: .6; }
 
 <div class="composer">
   <div class="composer-inner">
+    <button id="screen-toggle" class="screen-toggle" onclick="toggleScreen()" aria-pressed="false"
+      title="Sends a one-time screenshot of this VM's screen with your question">&#x1F5A5; Include my screen</button>
     <textarea id="q" rows="1" placeholder="Ask about your lab&hellip;" autofocus></textarea>
     <button id="send" onclick="ask()">Ask</button>
   </div>
@@ -313,6 +364,19 @@ function add(role, html) {
   return div;
 }
 
+let includeScreen = false;
+function toggleScreen() {
+  includeScreen = !includeScreen;
+  const t = $('screen-toggle');
+  t.classList.toggle('on', includeScreen);
+  t.setAttribute('aria-pressed', includeScreen);
+}
+
+function openAnnotation(img) {
+  // ponytail: blob URL + window.open — no lightbox needed for a hackathon sidecar
+  fetch(img.src).then(r => r.blob()).then(b => window.open(URL.createObjectURL(b), '_blank'));
+}
+
 function suggest(chip) {
   $('q').value = chip.textContent;
   ask();
@@ -331,7 +395,10 @@ async function ask() {
   if (welcome) welcome.remove();
   $('q').value = '';
   $('q').style.height = 'auto';
-  add('user', '<div class="bubble">' + esc(q) + '</div>');
+  const withScreen = includeScreen;
+  if (withScreen) toggleScreen(); // one-shot: reset after send
+  add('user', '<div class="bubble">' + esc(q) + '</div>' +
+    (withScreen ? '<span class="screen-badge">&#x1F5A5; screen attached</span>' : ''));
   const wait = add('assistant',
     '<div class="bubble"><span class="typing"><span></span><span></span><span></span></span></div>');
   setBusy(true);
@@ -339,7 +406,7 @@ async function ask() {
     const r = await fetch('/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: q })
+      body: JSON.stringify({ question: q, include_screen: withScreen })
     });
     let body = null;
     try { body = await r.json(); } catch {}
@@ -350,11 +417,24 @@ async function ask() {
       wait.innerHTML = '<div class="bubble error">' + why + '</div>';
       return;
     }
-    let html = '<div class="bubble">' + md(body.answer) + '</div>';
+    let html = '<div class="bubble">' + md(body.answer);
+    if (body.annotation && body.annotation.image_b64) {
+      html += '<figure class="annotation">' +
+        '<img src="data:image/png;base64,' + esc(body.annotation.image_b64) +
+        '" alt="' + esc(body.annotation.label || 'annotated screenshot') +
+        '" onclick="openAnnotation(this)">' +
+        (body.annotation.label ? '<figcaption>' + esc(body.annotation.label) + '</figcaption>' : '') +
+        '</figure>';
+    }
+    html += '</div>';
     if (body.sources && body.sources.length) {
-      html += '<div class="sources">' + body.sources.map(s =>
-        '<a class="src-pill" href="' + esc(s.url) + '" target="_blank" rel="noopener">' +
-        esc(s.title || 'MS Learn') + '</a>').join('') + '</div>';
+      html += '<div class="sources">' + body.sources.map(s => {
+        const label = esc(s.title || 'MS Learn');
+        // only link http(s) URLs — anything else renders as plain text
+        return /^https?:\/\//.test(s.url || '')
+          ? '<a class="src-pill" href="' + esc(s.url) + '" target="_blank" rel="noopener">' + label + '</a>'
+          : '<span class="src-pill">' + label + '</span>';
+      }).join('') + '</div>';
     }
     wait.innerHTML = html;
   } catch (e) {

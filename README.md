@@ -32,10 +32,12 @@ Steps 1-2 above can be verified without Azure OpenAI credentials — see
 "Harness smoke (no LLM)" below. The full learner flow (steps 3-5, an actual
 grounded answer) needs real `AZURE_OPENAI_*` env as shown above.
 
-### Screen companion (in progress)
+### Screen companion
 
-Annotated guide screenshots and the "Include my screen" one-shot capture are
-being added next — not part of this demo yet.
+Answers can include an annotated guide screenshot (rendered in the chat with a
+caption, click to open full size), and the "Include my screen" toggle sends a
+one-shot capture of the VM's screen with your question. If capture fails, the
+question is still sent text-only.
 
 ## Deploy the orchestrator (instructor, one command)
 

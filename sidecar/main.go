@@ -3,13 +3,17 @@ package main
 import (
 	"bytes"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
+	"image/png"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/kbinani/screenshot"
 )
 
 //go:embed ui/index.html
@@ -36,20 +40,31 @@ func loadConfig(path string) (Config, error) {
 	return cfg, err
 }
 
-func newAskHandler(cfg Config, client *http.Client) http.HandlerFunc {
+// newAskHandler proxies /ask to the orchestrator. capture returns a base64
+// PNG of the primary display; nil means screen capture is unavailable.
+func newAskHandler(cfg Config, client *http.Client, capture func() (string, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Question string `json:"question"`
+			Question      string `json:"question"`
+			IncludeScreen bool   `json:"include_screen"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		payload, _ := json.Marshal(map[string]string{
+		body := map[string]string{
 			"event_id":      cfg.EventID,
 			"deployment_id": cfg.DeploymentID,
 			"question":      in.Question,
-		})
+		}
+		if in.IncludeScreen && capture != nil {
+			if b64, err := capture(); err == nil {
+				body["screen_b64"] = b64
+			} else {
+				log.Printf("screen capture failed, sending text only: %v", err)
+			}
+		}
+		payload, _ := json.Marshal(body)
 		req, _ := http.NewRequest("POST", cfg.Endpoint+"/api/query", bytes.NewReader(payload))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Event-Key", cfg.Key)
@@ -65,6 +80,20 @@ func newAskHandler(cfg Config, client *http.Client) http.HandlerFunc {
 	}
 }
 
+// captureScreen grabs the primary display as a base64 PNG. Called only when
+// the learner opts in per question.
+func captureScreen() (string, error) {
+	img, err := screenshot.CaptureDisplay(0)
+	if err != nil {
+		return "", err
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
+
 func main() {
 	exe, _ := os.Executable()
 	cfg, err := loadConfig(filepath.Join(filepath.Dir(exe), "config.json"))
@@ -78,7 +107,7 @@ func main() {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(b)
 	})
-	http.HandleFunc("/ask", newAskHandler(cfg, client))
+	http.HandleFunc("/ask", newAskHandler(cfg, client, captureScreen))
 	log.Println("Lab Assistant on http://127.0.0.1:7788")
 	log.Fatal(http.ListenAndServe("127.0.0.1:7788", nil))
 }
