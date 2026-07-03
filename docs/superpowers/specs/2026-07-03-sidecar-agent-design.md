@@ -1,4 +1,4 @@
-# Self-Healing Sidecar Agent for CloudLabs — Design
+# CloudLabs Lab Assistant — Grounded Q&A Sidecar — Design
 
 **Date:** 2026-07-03
 **Status:** Approved for planning
@@ -8,206 +8,208 @@
 
 ## 1. Problem
 
-During large CloudLabs training events, a large share of support tickets are not
-about the lab content — they are about **environment hitches** (DNS loops, a hung
-Docker daemon, stuck apt/choco locks, proxy drops, mismatched env vars) and
-**"I'm stuck on Task 2, where's the option?"** navigation questions. Both are
-repetitive, low-complexity, and today require a human on the support team.
+During large CloudLabs training events, a share of support tickets are navigation
+questions: *"I'm stuck on Task 2, I can't find the option."* These are repetitive,
+low-complexity, and today pull a human off the support team.
 
-We want a lightweight agent **inside the learner's VM** that resolves both classes
-without a human ticket:
+We want a lightweight agent **inside the learner's VM** that answers these,
+grounded in **this lab's own guide** plus **MS Learn**, and that **explains and
+points — never performs the lab step** (that would defeat a guided lab).
 
-1. **Self-Heal** — one-click, deterministic repair of common platform gotchas.
-2. **Grounded Q&A** — answers scoped to *this lab's* guide plus MS Learn, that
-   *explains and points* — never does the lab step for the learner.
+> **Dropped from the earlier draft:** the self-heal tab. CloudLabs already surfaces
+> deployment/ARM/region failures in its own portal deployment view, so localized
+> repair adds little. The product is now purely **grounded Q&A**.
 
 ## 2. Goals / Non-Goals
 
 **Goals**
 - Agent runs *inside* the VM (hard requirement), installed via the existing
   CloudLabs logon-script mechanism — no change to how CloudLabs deploys.
-- Per-lab knowledge that is **ephemeral** and **isolated** — a learner can only
-  ever retrieve their own lab's guide, even when multiple labs run simultaneously.
-- Instructor feeds the guide **once** before the event, from a CloudLabs preview
-  link, a GitHub repo, or a direct upload.
+- Answers grounded in the exact lab guide the learner is running, **including its
+  screenshots**, plus MS Learn.
+- Per-lab knowledge that is **ephemeral** and **isolated** — a learner can only ever
+  retrieve their own lab's guide, even with multiple labs running at once.
+- Instructor feeds the guide **once** before the event, by pointing at the guide's
+  **master doc** (GitHub repo) or a **CloudLabs experience preview link**. No manual
+  image upload — images are resolved dynamically from the markdown.
+- Central infra is **`azd up`-deployable** to the instructor's MSDN subscription.
 - Flat cost regardless of learner count; a metering hook from day one.
 
 **Non-Goals (this iteration)**
-- No automation/solving of lab steps (defeats the point of a guided lab).
-- No live screen annotation / computer vision overlay (roadmap, §12).
-- No cloud vector database (Azure AI Search) — guides are small enough to skip it (§5).
-- No billing engine — only the metering *log* (§10).
+- No self-heal / environment repair (dropped — see §1).
+- No lab-step automation or solving.
+- No screenshot annotation / browser control (roadmap, §11).
+- No cloud vector DB (Azure AI Search) — guides are small enough to skip it (§5).
+- No billing engine — only the metering *log* (§9).
 
 ## 3. Architecture
 
 Two pieces, split by *when* they run.
 
 ```
-BEFORE the event (central, on instructor's MSDN RG)
-┌─────────────────────────────────────────────────────────┐
-│  Instructor Portal + Orchestrator (FastAPI, Python)      │
-│  ├─ Ingest: source resolvers → vision-caption images →   │
-│  │           enriched guide, stored per eventID (blob)   │
-│  ├─ Query API: {question, eventID} → guide + MS Learn →   │
-│  │             Azure OpenAI → grounded answer             │
-│  └─ Metering log: one row per request                    │
-└─────────────────────────────────────────────────────────┘
-        ▲ HTTPS (endpoint + scoped key + eventID)
+BEFORE the event (central, azd-deployed to instructor's MSDN RG)
+┌──────────────────────────────────────────────────────────────┐
+│  Instructor Portal + Orchestrator (FastAPI, Python)           │
+│  ├─ Ingest:  masterdoc → fetch markdown (Order) via CloudLabs  │
+│  │           docs-api proxy → resolve + fetch each referenced  │
+│  │           image by its relative path → vision-caption →     │
+│  │           enriched guide, stored per eventID (blob)         │
+│  ├─ Query:   {question, eventID} → enriched guide + MS Learn → │
+│  │           Azure OpenAI → grounded answer + guide citation   │
+│  └─ Metering: one row per request                             │
+└──────────────────────────────────────────────────────────────┘
+        ▲ HTTPS (orchestrator endpoint + scoped key + eventID)
         │
 DURING the event (inside each learner VM, N copies)
-┌─────────────────────────────────────────────────────────┐
-│  Sidecar Agent (Go, single static binary)                │
-│  ├─ Windows service + logon scheduled task + shortcut    │
-│  ├─ Local web UI on 127.0.0.1  (Ask tab / Fix tab)       │
-│  ├─ Self-Heal engine: allowlisted PowerShell repairs     │
-│  └─ Thin chat client → calls orchestrator Query API      │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  Sidecar Agent (single static binary — Go)                    │
+│  ├─ Windows service + logon scheduled task + desktop shortcut │
+│  ├─ Local web UI on 127.0.0.1  (single "Ask" chat)            │
+│  └─ Thin client → proxies question to orchestrator Query API  │
+│     (holds only the scoped orchestrator key, never the LLM    │
+│      key; the page never sees a secret)                       │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-**Why this split:** the LLM cannot live in the VM (no GPU, cost, security), and it
-*must* be central rather than per-VM because Azure OpenAI quota is
-per-subscription-per-region — hundreds of per-RG OpenAI accounts collide on one
-shared quota pool (CloudLabs' default "shared subscription" mode). The guide is
-tiny, so it needs no cloud Search; it lives centrally per event, scoped by event ID.
-The agent stays *thin*: everything it does that needs no network (self-heal, UI) is
-local and instant; everything that needs the LLM is one HTTPS call home.
+**Why this split.** The LLM cannot live in the VM (no GPU, cost, security) and must
+be **central, not per-VM**: Azure OpenAI quota is per-subscription-per-region, so
+hundreds of per-RG OpenAI accounts collide on one shared quota pool (CloudLabs'
+default shared-subscription mode). Guides are tiny, so no cloud Search; each event's
+enriched guide lives centrally, scoped by event ID. The agent stays *thin* — a UI +
+one HTTPS call home — which is why it drops into the VM with a single install line.
 
-## 4. Isolation & Ephemerality Model
+## 4. Isolation & Ephemerality
 
-- Every VM is stamped at provisioning with exactly one **`eventID` + endpoint +
-  scoped key** (`config.json`). It knows nothing about any other event.
-- The orchestrator stores each event's enriched guide under its `eventID`. A query
-  carries `eventID`; retrieval is scoped to that key. **Two simultaneous labs
-  cannot cross-contaminate** — a storage-account VM literally cannot address the
-  Copilot guide's content.
-- Ephemeral: the event's guide + metering rows are deleted on event teardown (TTL
-  or explicit "end event"). Nothing is stored forever.
-- The scoped key authorizes only that event's endpoint, and can be revoked when the
-  event ends.
+- Each VM is stamped at provisioning with exactly one **`eventID` + orchestrator
+  endpoint + scoped key** (`config.json`). It knows nothing about any other event.
+- The orchestrator stores each event's enriched guide under its `eventID`; a query
+  carries `eventID`, so retrieval is scoped to that key. **Two simultaneous labs
+  cannot cross-contaminate** — a storage-account VM cannot address the Copilot
+  guide's content.
+- Ephemeral: the event's guide + metering rows are deleted on teardown (TTL or an
+  explicit "end event"). Nothing is stored forever.
+- The scoped key authorizes only that event's endpoint and is revoked at teardown.
 
 ## 5. Why no Azure AI Search
 
-A 6–10 page guide is ~3–8k tokens of text — it fits *whole* in the model's context
-window. A vector DB only earns its cost when the corpus is too large to fit; we are
-far below that per lab. Stuffing the full enriched guide into context also removes
-the "wrong chunk retrieved" failure mode, so answer quality is higher.
+A 6–10 page guide (~200–300 lines of markdown per exercise) is a few thousand tokens
+of text — it fits *whole* in the model's context window. A vector DB only earns its
+cost when the corpus is too big to fit; we are far below that per lab. Full-context
+stuffing also removes the "wrong chunk retrieved" failure mode → higher answer
+quality. **Add it back only** if a guide exceeds ~50 pages or the agent must search
+across many guides at once — and then as a *lightweight local index*, not the cloud
+service. Guide loading is isolated so this is a one-module swap.
 
-**Add it back only when** a guide exceeds ~50 pages or the agent must search across
-many guides at once — and even then as a *lightweight local index in the VM*, not
-the $250/mo cloud service. Guide loading is designed so this is a one-module swap.
+## 6. Ingestion — masterdoc-driven, dynamic image resolution
 
-## 6. Ingestion (instructor side)
+This is the core of the instructor side. Input is **one of**:
 
-Pluggable **source resolvers** normalize any input into markdown + image list:
+| Source | How the ingester resolves it |
+|--------|------------------------------|
+| **Master doc** (`masterdoc.json`) — uploaded, or its repo/raw URL | Read the `Files[]` list; each entry has a `RawFilePath` (served via `docs-api.cloudlabs.ai/repos/raw.githubusercontent.com/...`) and an `Order`. Fetch each in order. The proxy fronts GitHub and handles **private repos**, so no PAT plumbing needed. |
+| **CloudLabs experience preview link** (`experience.cloudlabs.ai/#/labguidepreview/{guid}/{n}`) | SPA — resolve the `{guid}` to its master doc via CloudLabs' content API, then proceed as above. *(Build-time discovery, §12.)* |
 
-| Source | Resolver behavior |
-|--------|-------------------|
-| **CloudLabs preview link** (`experience.cloudlabs.ai/#/labguidepreview/{guid}/{n}`) | SPA — resolve to CloudLabs' backing content API server-side. *(Build-time discovery task; endpoint known internally.)* |
-| **GitHub repo + master doc** | Clone/pull (PAT for private repos), read the **master doc** to select the relevant exercise markdown files, fetch their raw content + referenced images. |
-| **Direct upload** | Markdown/zip/PDF uploaded through the portal. |
+Then a common pipeline, per markdown file in `Order`:
 
-Then a common pipeline:
-1. Parse markdown, collect referenced screenshots.
-2. **Vision-caption each image once** (multimodal model at ingest) → inline a text
-   description next to each image. The guide becomes fully self-describing text.
-3. Store the enriched guide under `eventID` (cheap blob), ready for context-stuffing.
+1. Parse markdown.
+2. **Resolve every image reference dynamically.** A ref like `![](../images/aisnew.png)`
+   is resolved *relative to that markdown file's location* on the same proxy base
+   (e.g. `.../Labs/Exercise-1.md` + `../images/aisnew.png` →
+   `.../images/aisnew.png`) and fetched. **No separate images folder is ever
+   uploaded** — the agent follows the path in the markdown to the exact image, as
+   required.
+3. **Vision-caption each fetched image once** (multimodal model, at ingest) and
+   inline the caption next to the reference. The guide becomes fully self-describing
+   text. Store the **resolved image URL alongside the caption** so the future
+   annotation feature (§11) can re-fetch the exact screenshot on demand.
+4. Recognize CloudLabs template tokens (`<inject key="Deployment ID" .../>`) as
+   per-learner dynamic values, so the agent explains them rather than treating them
+   as literal text.
+5. Store the enriched guide under `eventID` (Azure Blob), ready for context-stuffing.
 
-Vision runs **at ingest (once per guide, central)** — never at query time — so every
+Vision runs **at ingest, once per guide, centrally** — never at query time — so every
 learner query stays text-only, fast, and cheap.
-
-**Master doc:** a separate instructor input that tells the ingester *which*
-exercises are in scope and their order, so the KB reflects exactly the lab being run.
 
 ## 7. Flows
 
 ### Instructor — before the event (once)
 1. Open portal → **create lab event** → receive `eventID` + endpoint + key.
-2. Provide the guide via preview link / GitHub+master / upload.
-3. Ingest runs (resolve → caption → store per `eventID`).
+2. Point at the guide: paste the **master doc** (repo/raw URL or upload) *or* the
+   **experience preview link**.
+3. Ingest runs (fetch markdown in order → resolve+fetch images → caption → store per
+   `eventID`).
 4. Paste `eventID` + endpoint + key into the CloudLabs deployment as **ARM
    parameters** (alongside those `deploy.json` already passes).
-5. Launch event → CloudLabs fans out N VMs; each logon script stamps the three
-   values into the VM's `config.json`.
+5. Launch event → CloudLabs fans out N VMs; each logon script stamps the three values
+   into the VM's `config.json`.
 
 ### Learner — during the event (per stuck moment)
-1. **🛟 Lab Assistant** shortcut/hotkey → sidecar opens local web UI on `127.0.0.1`.
-2. **Fix tab** → run diagnostics → one-click allowlisted repair. *No network/LLM.*
-3. **Ask tab** → "stuck on Task 2, can't find the option" → sidecar sends
-   `{question, eventID}` → orchestrator loads that event's guide + relevant MS Learn
-   → LLM → grounded answer that *explains and points, never performs the step*.
+1. **Lab Assistant** shortcut/hotkey → sidecar opens local web UI on `127.0.0.1`.
+2. Types "stuck on Task 2, can't find the option" → sidecar sends
+   `{question, eventID}` → orchestrator loads that event's enriched guide + relevant
+   MS Learn → LLM → **grounded answer that explains and points, never performs the
+   step**, with a citation to the guide step it came from.
+3. Isolation: the sidecar only knows its own `eventID`, so it can only ever retrieve
+   its own lab's guide.
 
-## 8. Self-Heal engine (safety-critical)
+## 8. Deployment integration
 
-Repairs are a **fixed, allowlisted catalog** — the agent *selects* a repair, it
-**never generates shell**. Each repair is:
-- **Idempotent** — safe to run twice.
-- **Reversible / logged** — records what it changed.
-- **Explicit** — shown to the learner before running ("This will restart the Docker
-  service"), one-click confirm.
+**Central infra (instructor side):** an **`azd` project** (Bicep + `azure.yaml`) the
+instructor runs with **`azd up`** on their MSDN — provisions the FastAPI
+orchestrator/portal, Azure OpenAI (chat + vision), blob storage, and the metering
+store. We author the IaC; the instructor runs one command.
 
-Initial catalog (Windows-first, per confirmed runtime):
-- DNS cache flush / resolver reset (DNS loops)
-- Restart hung Docker Desktop / daemon
-- Clear stuck choco/MSI installer locks
-- Proxy / WinHTTP reset
-- Repair known lab env-var drift (from `config.json` expected values)
-
-Diagnostics run read-only first; repair is a separate, confirmed action. This is the
-one place we do **not** simplify — running elevated repairs is a trust boundary.
-
-## 9. Deployment integration (matches existing idiom)
-
-No ARM resource changes needed for the agent itself. Reuse the exact patterns in
-`cloudlabs-windows-functions.ps1`:
-
+**VM side (matches existing `cloudlabs-windows-functions.ps1` idiom):**
 - **New function `InstallSidecarAgent`** (mirrors `InstallModernVmValidator`):
   download the agent zip from blob → `sc create` a Windows service → `-AtLogOn`
   scheduled task (mirrors `Enable-CloudLabsEmbeddedShadow`) → `WScript.Shell`
-  desktop shortcut "🛟 Lab Assistant".
+  desktop shortcut "Lab Assistant".
 - **Config injection** (mirrors `CreateCredFile` string-replace): stamp `eventID` +
   endpoint + key into the agent's local `config.json`.
-- **Per-lab call:** one line in the lab script (`demo.ps1`): `InstallSidecarAgent`,
-  after the existing `choco install` lines.
-- **ARM parameters:** add `sidecarEventID`, `sidecarEndpoint`, `sidecarKey` to the
-  template's parameters and thread them into the CustomScriptExtension command
-  (same mechanism as `cloudlabsCommon`).
+- **Per-lab call:** one line in the lab script (`demo.ps1`): `InstallSidecarAgent`.
+- **ARM parameters:** add `sidecarEventID`, `sidecarEndpoint`, `sidecarKey`, threaded
+  into the CustomScriptExtension command like the existing `cloudlabsCommon`.
 
-## 10. Metering (hook now, monetize later)
+## 9. Metering (hook now, monetize later)
 
-The orchestrator appends **one row per request**:
-`eventID, userID, timestamp, tokens_in, tokens_out, feature (ask|fix)`.
+Orchestrator appends **one row per request**:
+`eventID, userID, timestamp, tokens_in, tokens_out`.
+Application-level metering (orchestrator counts) — so usage can later be
+priced/tiered independently of raw Azure cost, and the LLM stays central (no quota
+wall). No billing engine now; the log *is* the foundation.
+`ponytail: metering = one append-only log line per request; no billing until a customer.`
 
-Application-level metering (orchestrator counts) — not infrastructure billing — so
-usage can later be priced/tiered/marked-up independently of raw Azure cost, and the
-LLM stays central (no quota wall). No billing engine is built now; the log *is* the
-foundation. Investor-facing: "every Ask is a metered, priced event."
+## 10. Tech stack
 
-## 11. Tech stack
-
-- **Sidecar:** Go — single static, zero-dependency binary; embeds the web UI assets;
-  runs as a Windows service. (Rust is an equally valid choice; Go chosen for faster
-  hackathon iteration and simpler Windows service tooling.)
-- **Orchestrator + portal:** Python / FastAPI (matches the original design and the
-  team's stack).
-- **LLM + vision:** Azure OpenAI (multimodal model for ingest captioning; chat model
-  for Q&A) on the central RG. Model version chosen from what is GA on the MSDN sub.
+- **Sidecar:** Go — single static, zero-dependency binary; embeds the web UI; runs as
+  a Windows service. Holds only the scoped orchestrator key.
+- **Orchestrator + portal:** Python / FastAPI.
+- **LLM + vision:** Azure OpenAI (multimodal for ingest captioning; chat for Q&A) on
+  the central RG. Model chosen from what is GA on the MSDN sub/region.
 - **MS Learn:** official docs retrieval at query time via the orchestrator.
 - **Guide storage:** Azure Blob, keyed by `eventID`. **No Azure AI Search.**
+- **Infra:** Bicep + `azd`.
 
-## 12. Roadmap (explicitly out of scope now)
+## 11. Roadmap (explicitly out of scope now)
 
-- **Live screen annotation** — capture + vision + transparent overlay pointing at the
-  UI element. Hardest piece; prove Tiers 1–2 first.
-- **Local in-VM index** — only if guides grow large or multi-guide search is needed.
-- **Billing** — usage tiers / per-seat pricing on top of the metering log.
-- **Cross-platform** — Linux VM support (bash/systemctl repair modules) if labs need it.
+Ordered by tractability:
+1. **Screenshot annotation** — on "where is X", return the relevant guide screenshot
+   (already resolved at ingest, §6.3) with a highlight rectangle. A vision model
+   locates the element → bounding box → drawn overlay. Most tractable future feature.
+2. **Image generation** — synthesize a pointer/diagram when no guide screenshot fits.
+3. **Browser control** — agent drives the learner's browser (Playwright-style) to the
+   right screen. Powerful but must stay within "guide, don't solve."
+4. **Local in-VM index** — only if guides grow large or multi-guide search is needed.
+5. **Billing** — usage tiers / per-seat pricing on the metering log.
 
-## 13. Open questions / build-time discovery
+## 12. Open questions / build-time discovery
 
-1. **CloudLabs preview content API** — exact backing endpoint + auth for resolving
-   `labguidepreview` URLs server-side (known internally; confirm during build).
-2. **Private GitHub access** — PAT scope/storage for cloning private lab repos.
-3. **Azure OpenAI model availability** — which chat + vision models are GA on the
-   target MSDN subscription/region.
-4. **Hotkey mechanism** — global hotkey vs. desktop shortcut vs. tray icon for
-   invoking the local UI (shortcut is the safe default).
+1. **CloudLabs experience preview → master doc mapping** — the content API that turns
+   a `labguidepreview/{guid}` into its `masterdoc.json` (known internally; confirm
+   during build). Master-doc/repo path works today without it.
+2. **Azure OpenAI model availability** — which chat + vision models are GA on the
+   target MSDN subscription/region (drives the Bicep model deployment).
+3. **Hotkey mechanism** — global hotkey vs. desktop shortcut vs. tray icon
+   (shortcut is the safe default).
+4. **`userID` source** — which CloudLabs-provided value identifies a learner for
+   metering (`ODLID`? per-VM name?).
