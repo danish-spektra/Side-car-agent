@@ -6,7 +6,7 @@
 
 **Architecture:** Central FastAPI orchestrator (instructor portal + ingest pipeline + query API + metering) deployed via `azd` to the instructor's MSDN sub. Ingest is masterdoc-driven: fetch markdown in `Order` via the CloudLabs docs-api proxy, resolve each image's *relative* path against its markdown file's URL, vision-caption once, store one enriched guide per `eventID` (no vector DB — full-context stuffing). Per-VM Go sidecar serves a local chat UI on `127.0.0.1:7788` and proxies to the orchestrator with `eventID` + scoped key.
 
-**Tech Stack:** Python 3.11 / FastAPI / httpx / openai SDK / azure-storage-blob / pytest; Go 1.22 (stdlib only); Bicep + azd; PowerShell for VM install.
+**Tech Stack:** Python 3.14 / FastAPI / httpx / openai SDK / azure-storage-blob / pytest; Go 1.22 (stdlib only); Bicep + azd; PowerShell for VM install.
 
 ## Global Constraints
 
