@@ -39,11 +39,12 @@ class BlobStorage:
     """Same contract on Azure Blob. Container 'events', blob '{event_id}/{name}'."""
     def __init__(self, connection_string: str):
         from azure.storage.blob import BlobServiceClient
+        from azure.core.exceptions import ResourceExistsError
         svc = BlobServiceClient.from_connection_string(connection_string)
         self.container = svc.get_container_client("events")
         try:
             self.container.create_container()
-        except Exception:
+        except ResourceExistsError:
             pass  # already exists
 
     def _blob(self, event_id, name):
