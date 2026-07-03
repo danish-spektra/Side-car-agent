@@ -173,7 +173,9 @@ store. We author the IaC; the instructor runs one command.
 ## 9. Metering (hook now, monetize later)
 
 Orchestrator appends **one row per request**:
-`eventID, userID, timestamp, tokens_in, tokens_out`.
+`eventID, deploymentID, timestamp, tokens_in, tokens_out`.
+`DeploymentID` is unique per learner within an ODL (confirmed), so it is the
+per-learner metering key.
 Application-level metering (orchestrator counts) — so usage can later be
 priced/tiered independently of raw Azure cost, and the LLM stays central (no quota
 wall). No billing engine now; the log *is* the foundation.
@@ -184,8 +186,10 @@ wall). No billing engine now; the log *is* the foundation.
 - **Sidecar:** Go — single static, zero-dependency binary; embeds the web UI; runs as
   a Windows service. Holds only the scoped orchestrator key.
 - **Orchestrator + portal:** Python / FastAPI.
-- **LLM + vision:** Azure OpenAI (multimodal for ingest captioning; chat for Q&A) on
-  the central RG. Model chosen from what is GA on the MSDN sub/region.
+- **LLM + vision:** Azure OpenAI on the central RG. Latest GA multimodal chat model
+  (per user: "gpt-chat-latest" / GPT-5.x tier — pinned at build time to what the MSDN
+  region offers, `gpt-4o` as fallback) for both Q&A and ingest captioning;
+  `gpt-image-2` deployment reserved for the roadmap image-generation feature.
 - **MS Learn:** official docs retrieval at query time via the orchestrator.
 - **Guide storage:** Azure Blob, keyed by `eventID`. **No Azure AI Search.**
 - **Infra:** Bicep + `azd`.
@@ -207,9 +211,8 @@ Ordered by tractability:
 1. **CloudLabs experience preview → master doc mapping** — the content API that turns
    a `labguidepreview/{guid}` into its `masterdoc.json` (known internally; confirm
    during build). Master-doc/repo path works today without it.
-2. **Azure OpenAI model availability** — which chat + vision models are GA on the
-   target MSDN subscription/region (drives the Bicep model deployment).
+2. **Azure OpenAI model pinning** — confirm the exact latest chat model name GA in
+   the MSDN region at `azd up` time (fallback `gpt-4o`); `gpt-image-2` only when the
+   image-gen roadmap item lands.
 3. **Hotkey mechanism** — global hotkey vs. desktop shortcut vs. tray icon
    (shortcut is the safe default).
-4. **`userID` source** — which CloudLabs-provided value identifies a learner for
-   metering (`ODLID`? per-VM name?).
