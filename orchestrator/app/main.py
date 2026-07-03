@@ -1,6 +1,8 @@
 import json
+from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from app.config import get_settings
@@ -24,6 +26,20 @@ def _wire():
         oai = make_openai_client(settings)
         app.state.oai = oai
         app.state.caption_fn = Captioner(oai, settings.azure_openai_chat_deployment).caption
+
+PORTAL = Path(__file__).parent / "portal" / "index.html"
+STATIC = Path(__file__).parent.parent / "static"
+
+@app.get("/", response_class=HTMLResponse)
+def portal():
+    return PORTAL.read_text(encoding="utf-8")
+
+@app.get("/download/sidecar.zip")
+def download_sidecar():
+    f = STATIC / "sidecar.zip"
+    if not f.exists():
+        raise HTTPException(404, "sidecar.zip not built yet")
+    return FileResponse(f, media_type="application/zip", filename="sidecar.zip")
 
 @app.get("/healthz")
 def healthz():
