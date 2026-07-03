@@ -23,6 +23,18 @@ def test_create_event(client):
     body = r.json()
     assert body["name"] == "AI Workshop" and body["event_id"] and body["key"]
 
+def test_create_event_instructor_gate(client, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "instructor_key", "sekrit")
+    r = client.post("/api/events", json={"name": "d"})
+    assert r.status_code == 401
+    r = client.post("/api/events", json={"name": "d"},
+                    headers={"X-Instructor-Key": "wrong"})
+    assert r.status_code == 401
+    r = client.post("/api/events", json={"name": "d"},
+                    headers={"X-Instructor-Key": "sekrit"})
+    assert r.status_code == 200
+
 def test_ingest_via_masterdoc_url(client):
     ev = client.post("/api/events", json={"name": "d"}).json()
     r = client.post(f"/api/events/{ev['event_id']}/ingest",

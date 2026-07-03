@@ -12,7 +12,9 @@ def test_portal_served(tmp_path):
     assert "Lab Assistant" in r.text
 
 
-def test_sidecar_zip_404_when_missing(tmp_path):
+def test_sidecar_zip_404_when_missing(tmp_path, monkeypatch):
+    import app.main as main_mod
+    monkeypatch.setattr(main_mod, "STATIC", tmp_path)  # empty dir -> no zip
     app.state.storage = LocalStorage(str(tmp_path))
     client = TestClient(app)
     r = client.get("/download/sidecar.zip")

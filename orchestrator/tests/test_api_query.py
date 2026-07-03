@@ -1,5 +1,9 @@
+import base64
+import io
+
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from app.main import app
 from app.metering import read_usage
 from app.storage import LocalStorage
@@ -8,10 +12,18 @@ class FakeUsage:
     prompt_tokens = 900
     completion_tokens = 120
 
+CANNED = "Look under Exercise 1, Task 2 — the option is in the left menu."
+
 class FakeCompletions:
+    def __init__(self, scripts=None):
+        self.scripts = scripts or []
+        self.calls = []
+
     def create(self, **kwargs):
         self.last_kwargs = kwargs
-        class Msg: content = "Look under Exercise 1, Task 2 — the option is in the left menu."
+        self.calls.append(kwargs)
+        text = self.scripts.pop(0) if self.scripts else CANNED
+        class Msg: content = text
         class Choice: message = Msg()
         class Resp:
             choices = [Choice()]
@@ -19,8 +31,13 @@ class FakeCompletions:
         return Resp()
 
 class FakeOAI:
-    def __init__(self):
-        self.chat = type("C", (), {"completions": FakeCompletions()})()
+    def __init__(self, scripts=None):
+        self.chat = type("C", (), {"completions": FakeCompletions(scripts)})()
+
+def _tiny_png() -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (20, 20), "white").save(buf, "PNG")
+    return buf.getvalue()
 
 @pytest.fixture
 def client(tmp_path):
@@ -34,7 +51,9 @@ def client(tmp_path):
 
 def _make_ready_event(client):
     ev = client.post("/api/events", json={"name": "d"}).json()
-    app.state.storage.save_text(ev["event_id"], "guide.md", "# Exercise 1\nTask 2: click the left menu")
+    app.state.storage.save_text(
+        ev["event_id"], "guide.md",
+        "# Exercise 1\nTask 2: click the left menu\n(image: https://x/shot.png)")
     return ev
 
 def test_query_answers_and_meters(client):
@@ -73,3 +92,77 @@ def test_query_wrong_key_401(client):
                     json={"event_id": ev["event_id"], "deployment_id": "d", "question": "q"},
                     headers={"X-Event-Key": "bad"})
     assert r.status_code == 401
+
+# --- screen companion -------------------------------------------------------
+
+def _query(client, ev, **extra):
+    return client.post("/api/query",
+                       json={"event_id": ev["event_id"], "deployment_id": "d",
+                             "question": "where is it?", **extra},
+                       headers={"X-Event-Key": ev["key"]})
+
+def test_annotate_marker_yields_annotation_and_stripped_answer(client):
+    ev = _make_ready_event(client)
+    app.state.oai = FakeOAI(scripts=[
+        "It is in the left menu.\nANNOTATE: https://x/shot.png | the Save button",
+        '{"found": true, "box": [2, 2, 15, 15]}',
+    ])
+    app.state.fetch = lambda url: _tiny_png()
+    r = _query(client, ev)
+    body = r.json()
+    assert body["answer"] == "It is in the left menu."
+    assert "ANNOTATE" not in body["answer"]
+    ann = body["annotation"]
+    assert ann["label"] == "the Save button"
+    img = Image.open(io.BytesIO(base64.b64decode(ann["image_b64"])))
+    assert img.format == "PNG"
+
+def test_annotate_live_uses_request_screen(client):
+    ev = _make_ready_event(client)
+    app.state.oai = FakeOAI(scripts=[
+        "You already opened it.\nANNOTATE: LIVE | the search box",
+        '{"found": true, "box": [1, 1, 10, 10]}',
+    ])
+    def boom(url):
+        raise AssertionError("fetch must not be called for LIVE")
+    app.state.fetch = boom
+    screen = base64.b64encode(_tiny_png()).decode()
+    r = _query(client, ev, screen_b64=screen)
+    body = r.json()
+    assert body["annotation"]["label"] == "the search box"
+    assert body["answer"] == "You already opened it."
+
+def test_annotate_locate_failure_degrades_to_text(client):
+    ev = _make_ready_event(client)
+    app.state.oai = FakeOAI(scripts=[
+        "Answer text.\nANNOTATE: https://x/shot.png | the thing",
+        "no json in sight",
+    ])
+    app.state.fetch = lambda url: _tiny_png()
+    r = _query(client, ev)
+    body = r.json()
+    assert body["answer"] == "Answer text."
+    assert not body.get("annotation")
+
+def test_annotate_url_not_in_guide_is_ignored_and_not_fetched(client):
+    ev = _make_ready_event(client)
+    app.state.oai = FakeOAI(scripts=[
+        "Answer text.\nANNOTATE: https://evil.example/steal.png | the thing",
+    ])
+    def boom(url):
+        raise AssertionError("must not fetch a URL that is not in the guide")
+    app.state.fetch = boom
+    r = _query(client, ev)
+    body = r.json()
+    assert body["answer"] == "Answer text."
+    assert not body.get("annotation")
+
+def test_screen_b64_makes_user_message_multimodal(client):
+    ev = _make_ready_event(client)
+    screen = base64.b64encode(_tiny_png()).decode()
+    _query(client, ev, screen_b64=screen)
+    user = app.state.oai.chat.completions.calls[0]["messages"][-1]
+    assert user["role"] == "user"
+    parts = user["content"]
+    assert parts[0] == {"type": "text", "text": "where is it?"}
+    assert parts[1]["image_url"]["url"] == f"data:image/png;base64,{screen}"

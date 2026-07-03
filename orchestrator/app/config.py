@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     storage_backend: str = "local"          # "local" | "blob"
     data_dir: str = "./data"
     azure_storage_connection_string: str = ""
+    instructor_key: str = ""                # empty = event creation open (local dev)
 
 @lru_cache
 def get_settings() -> Settings:
