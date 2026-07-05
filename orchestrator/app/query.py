@@ -22,10 +22,12 @@ LAB GUIDE:
 
 MS LEARN EXCERPTS:
 {learn}
+
+{hint_block}
 """
 
 def build_messages(guide: str, learn_results: list[dict], question: str,
-                   screen_b64: str | None = None) -> list[dict]:
+                   screen_b64: str | None = None, hint_block: str = "") -> list[dict]:
     learn = "\n".join(
         f"- {r['title']} ({r['url']}): {r['summary']}" for r in learn_results
     ) or "(none found)"
@@ -35,6 +37,7 @@ def build_messages(guide: str, learn_results: list[dict], question: str,
          "image_url": {"url": f"data:image/png;base64,{screen_b64}"}},
     ]
     return [
-        {"role": "system", "content": SYSTEM_PROMPT_TEMPLATE.format(guide=guide, learn=learn)},
+        {"role": "system", "content": SYSTEM_PROMPT_TEMPLATE.format(
+            guide=guide, learn=learn, hint_block=hint_block)},
         {"role": "user", "content": user_content},
     ]

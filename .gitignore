@@ -68,3 +68,5 @@ __pycache__/
 orchestrator/data/
 orchestrator/static/
 .superpowers/
+graphify-out/
+.playwright-mcp/

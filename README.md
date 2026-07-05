@@ -32,12 +32,55 @@ Steps 1-2 above can be verified without Azure OpenAI credentials — see
 "Harness smoke (no LLM)" below. The full learner flow (steps 3-5, an actual
 grounded answer) needs real `AZURE_OPENAI_*` env as shown above.
 
+### Graduated hinting
+
+The "guide, don't solve" rule is structural, not just prompt text. Each
+learner's asks are counted per task (`hints/{deployment_id}.json`): the first
+ask gets a conceptual nudge, the second a narrower pointer, the third onward a
+full step reference with reasoning — but never resolved `<inject .../>` values
+or a copy-pasteable complete solution. A cheap second LLM pass classifies every
+draft as PERFORM or POINT (`AZURE_OPENAI_CHECKER_DEPLOYMENT`, falls back to the
+chat deployment); a PERFORM draft is regenerated once. A hard post-filter
+strips any `<inject .../>` tag from answers regardless of what the model does.
+
+### Abuse limits
+
+The event key ships in plaintext on learner VMs, so `/api/query` gates before
+spending tokens, computed from the existing `usage.jsonl`:
+
+| env var | default | effect |
+|---|---|---|
+| `RATE_LIMIT_QUESTIONS` | 10 | max questions per learner per window → HTTP 429 |
+| `RATE_LIMIT_WINDOW_SECONDS` | 600 | sliding window size |
+| `EVENT_TOKEN_BUDGET` | 2000000 | tokens_in+out per event → HTTP 402 |
+
+The sidecar UI shows friendly messages for both.
+
+### Instructor analytics
+
+Every answered question appends a row to `analytics.jsonl` (task ref, question,
+hint level, checker flag — never the answer or screenshots). The portal's
+**Live event pulse** card polls `GET /api/events/{id}/analytics` (instructor
+key) every 10 s: headline numbers, a per-task bar list (🔥 = learners needed
+repeated hints there), and a recent-questions feed.
+
 ### Screen companion
 
 Answers can include an annotated guide screenshot (rendered in the chat with a
 caption, click to open full size), and the "Include my screen" toggle sends a
 one-shot capture of the VM's screen with your question. If capture fails, the
 question is still sent text-only.
+
+## Prompt caching
+
+Azure OpenAI caches prompt prefixes automatically (gpt-4o and newer, prefix
+≥ 1024 tokens) when the prefix is **byte-identical** across requests. All
+learners in an event share one enriched guide, so the system message is
+ordered: static rules → guide → MS Learn results → hint block. Never put
+per-request content (learn results, hint level, timestamps) before the guide —
+that breaks the shared prefix and every query pays full input price.
+`usage.jsonl` rows carry `tokens_cached`; expect it ≈ guide size on every
+request after the first within a ~5–10 min window.
 
 ## Deploy the orchestrator (instructor, one command)
 

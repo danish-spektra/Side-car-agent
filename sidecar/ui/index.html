@@ -4,46 +4,57 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lab Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #f4f6fb;
-  --surface: #ffffff;
-  --surface-2: #f0f2f9;
-  --text: #17203a;
-  --text-muted: #5a648a;
-  --border: #dde2f0;
-  --accent: #4f5dff;
-  --accent-2: #22b8e6;
-  --accent-grad: linear-gradient(135deg, #4f5dff 0%, #22b8e6 100%);
-  --danger: #d64545;
-  --danger-bg: #fbeaea;
-  --code-bg: #eef0f8;
-  --shadow: 0 1px 3px rgba(23, 32, 58, .06), 0 8px 28px rgba(23, 32, 58, .07);
-  --ring: rgba(79, 93, 255, .35);
+  --bg: #f6f4fe;
+  --surface: rgba(255, 255, 255, .62);
+  --surface-solid: rgba(255, 255, 255, .92);
+  --surface-2: rgba(255, 255, 255, .55);
+  --glass-border: rgba(255, 255, 255, .75);
+  --text: #1b1533;
+  --text-muted: #6e6790;
+  --border: rgba(109, 59, 255, .16);
+  --accent: #6d3bff;
+  --accent-2: #a06bff;
+  --accent-grad: linear-gradient(135deg, #6d3bff 0%, #a06bff 100%);
+  --danger: #d64560;
+  --danger-bg: rgba(214, 69, 96, .09);
+  --code-bg: rgba(109, 59, 255, .07);
+  --aurora-1: rgba(109, 59, 255, .17);
+  --aurora-2: rgba(160, 107, 255, .13);
+  --shadow: 0 1px 2px rgba(27, 21, 51, .04), 0 12px 32px rgba(87, 52, 199, .1);
+  --ring: rgba(109, 59, 255, .3);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0d1120;
-    --surface: #151b30;
-    --surface-2: #1c2340;
-    --text: #e7eafb;
-    --text-muted: #8b93b8;
-    --border: #2a3355;
-    --accent: #7b86ff;
-    --accent-2: #3fd0f5;
-    --accent-grad: linear-gradient(135deg, #6a76ff 0%, #2cc3ee 100%);
-    --danger: #ff7b7b;
-    --danger-bg: rgba(255, 123, 123, .12);
-    --code-bg: #10162b;
-    --shadow: 0 1px 3px rgba(0, 0, 0, .4), 0 10px 32px rgba(0, 0, 0, .45);
-    --ring: rgba(123, 134, 255, .4);
+    --bg: #0f0b1f;
+    --surface: rgba(33, 25, 60, .55);
+    --surface-solid: rgba(33, 25, 60, .95);
+    --surface-2: rgba(255, 255, 255, .05);
+    --glass-border: rgba(167, 139, 250, .22);
+    --text: #ece8fb;
+    --text-muted: #a49bcc;
+    --border: rgba(167, 139, 250, .18);
+    --accent: #9d7bff;
+    --accent-2: #c29aff;
+    --accent-grad: linear-gradient(135deg, #8b5cff 0%, #b98aff 100%);
+    --danger: #ff7b93;
+    --danger-bg: rgba(255, 123, 147, .12);
+    --code-bg: rgba(157, 123, 255, .1);
+    --aurora-1: rgba(109, 59, 255, .28);
+    --aurora-2: rgba(160, 107, 255, .16);
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 14px 40px rgba(0, 0, 0, .5);
+    --ring: rgba(157, 123, 255, .38);
   }
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
   margin: 0;
-  font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family: Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.55;
@@ -51,14 +62,39 @@ body {
   display: flex;
   flex-direction: column;
 }
+/* aurora backdrop — the color field the glass panels blur */
+body::before, body::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+}
+body::before {
+  width: 460px; height: 460px;
+  top: -160px; right: -110px;
+  background: radial-gradient(circle, var(--aurora-1), transparent 65%);
+}
+body::after {
+  width: 420px; height: 420px;
+  bottom: -150px; left: -120px;
+  background: radial-gradient(circle, var(--aurora-2), transparent 65%);
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 header {
   flex: none;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  border-bottom: 1px solid var(--glass-border);
   box-shadow: var(--shadow);
   position: relative;
   z-index: 1;
+}
+@supports not (backdrop-filter: blur(1px)) {
+  header, .composer { background: var(--surface-solid); }
 }
 .header-inner {
   max-width: 760px;
@@ -78,9 +114,10 @@ header {
   box-shadow: 0 4px 14px var(--ring);
 }
 .title-block h1 {
+  font-family: Sora, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   font-size: 1.05rem;
   font-weight: 700;
-  letter-spacing: -.01em;
+  letter-spacing: -.015em;
   margin: 0;
 }
 .title-block .tagline {
@@ -105,16 +142,22 @@ main {
 
 .welcome {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 16px;
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  backdrop-filter: blur(22px) saturate(1.5);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
   box-shadow: var(--shadow);
   padding: 1.5rem 1.75rem;
   margin-top: 1rem;
 }
+@supports not (backdrop-filter: blur(1px)) {
+  .welcome { background: var(--surface-solid); }
+}
 .welcome h2 {
-  font-size: 1.05rem;
+  font-family: Sora, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  font-size: 1.1rem;
   font-weight: 700;
-  letter-spacing: -.01em;
+  letter-spacing: -.015em;
   margin: 0 0 .35rem;
 }
 .welcome h2 .grad {
@@ -155,8 +198,8 @@ main {
   white-space: pre-wrap;
 }
 .msg.assistant .bubble {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  border: 1px solid var(--glass-border);
   box-shadow: var(--shadow);
   border-bottom-left-radius: 5px;
 }
@@ -253,7 +296,9 @@ span.src-pill:hover { border-color: var(--border); }
 .composer {
   flex: none;
   background: var(--surface);
-  border-top: 1px solid var(--border);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  border-top: 1px solid var(--glass-border);
 }
 .composer-inner {
   max-width: 760px;
@@ -411,9 +456,16 @@ async function ask() {
     let body = null;
     try { body = await r.json(); } catch {}
     if (!r.ok || !body || !body.answer) {
-      const why = r.status === 502
-        ? "I can't reach the lab service right now. Give it a moment and try again."
-        : "Something went wrong on the lab service (status " + r.status + "). Please try again.";
+      let why;
+      if (r.status === 429) {
+        why = "You're asking very fast — take a breath and try again in a couple of minutes.";
+      } else if (r.status === 402) {
+        why = "This event's assistant budget is used up — please ask your instructor.";
+      } else if (r.status === 502) {
+        why = "I can't reach the lab service right now. Give it a moment and try again.";
+      } else {
+        why = "Something went wrong on the lab service (status " + r.status + "). Please try again.";
+      }
       wait.innerHTML = '<div class="bubble error">' + why + '</div>';
       return;
     }

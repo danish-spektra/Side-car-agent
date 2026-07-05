@@ -4,6 +4,7 @@ from urllib.parse import urljoin
 import httpx
 
 IMG_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)\)")
+INJECT_RE = re.compile(r'<inject\s+key="([^"]+)"', re.IGNORECASE)
 
 def ordered_paths(masterdoc) -> list[str]:
     doc = masterdoc[0] if isinstance(masterdoc, list) else masterdoc
@@ -45,7 +46,11 @@ def ingest_event(storage, fetch, caption_fn, event_id: str, masterdoc) -> dict:
     for url in ordered_paths(masterdoc):
         md = fetch(url).decode("utf-8")
         parts.append(enrich_markdown(md, url, fetch, caption_fn, cache))
-    storage.save_text(event_id, "guide.md", "\n\n---\n\n".join(parts))
+    guide = "\n\n---\n\n".join(parts)
+    storage.save_text(event_id, "guide.md", guide)
+    # inject keys recorded at ingest so the query post-filter is guide-aware (Task 1d)
+    storage.save_text(event_id, "inject_keys.json",
+                      _json.dumps(sorted(set(INJECT_RE.findall(guide)))))
     event = get_event(storage, event_id)
     event["status"] = "ready"
     storage.save_text(event_id, "event.json", _json.dumps(event))

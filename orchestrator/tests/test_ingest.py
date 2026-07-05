@@ -86,3 +86,15 @@ def test_ingest_event_end_to_end(tmp_path):
     assert guide.index("# Ex1") < guide.index("# Ex2")
     assert "caption-for-3-bytes" in guide
     assert get_event(storage, ev["event_id"])["status"] == "ready"
+
+def test_ingest_stores_inject_keys(tmp_path):
+    storage = LocalStorage(str(tmp_path))
+    ev = create_event(storage, "demo")
+    masterdoc = [{"Name": "demo", "Files": [
+        {"RawFilePath": "https://x/Labs/e1.md", "Order": 1},
+    ]}]
+    pages = {"https://x/Labs/e1.md":
+             b'Use <inject key="Deployment ID"/> and <inject key="AzureAdUserEmail" enableCopy="true"/>.'}
+    ingest_event(storage, fake_fetch_factory(pages), fake_caption, ev["event_id"], masterdoc)
+    keys = json.loads(storage.load_text(ev["event_id"], "inject_keys.json"))
+    assert keys == ["AzureAdUserEmail", "Deployment ID"]
