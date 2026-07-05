@@ -9,6 +9,9 @@ param chatModelVersion string = '2024-11-20'
 param chatDeploymentName string = 'chat'
 @secure()
 param instructorKey string = ''
+param rateLimitQuestions int = 10
+param rateLimitWindowSeconds int = 600
+param eventTokenBudget int = 2000000
 
 var suffix = uniqueString(resourceGroup().id, environmentName)
 
@@ -63,6 +66,9 @@ resource site 'Microsoft.Web/sites@2023-01-01' = {
         { name: 'STORAGE_BACKEND', value: 'blob' }
         { name: 'AZURE_STORAGE_CONNECTION_STRING', value: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}' }
         { name: 'INSTRUCTOR_KEY', value: instructorKey }
+        { name: 'RATE_LIMIT_QUESTIONS', value: string(rateLimitQuestions) }
+        { name: 'RATE_LIMIT_WINDOW_SECONDS', value: string(rateLimitWindowSeconds) }
+        { name: 'EVENT_TOKEN_BUDGET', value: string(eventTokenBudget) }
         { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }
       ]
     }

@@ -1,21 +1,39 @@
 import base64
 import json
+import logging
+import re
 import secrets
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from app.config import get_settings
+from app import analytics
 from app import annotate as annotate_mod
+from app import checker as checker_mod
+from app import hinting
 from app import ingest as ingest_mod
+from app import limits
 from app import metering
 from app.mslearn import search_learn
 from app.query import build_messages
 from app.storage import create_event, get_event, get_storage, verify_key
 
 app = FastAPI(title="CloudLabs Lab Assistant Orchestrator")
+log = logging.getLogger(__name__)
+
+# Task 1d: code guarantee — inject tags never reach the learner, prompt or not.
+INJECT_TAG_RE = re.compile(r"<inject\b[^>]*>?", re.IGNORECASE)
+INJECT_REMINDER = "(use the value from your Environment Details tab)"
+
+def _strip_inject(answer: str) -> str:
+    return INJECT_TAG_RE.sub(INJECT_REMINDER, answer)
+
+REGEN_LINE = ("Your previous draft solved the step outright. Rewrite it to "
+              "point and explain without giving the complete solution.")
 
 @app.on_event("startup")
 def _wire():
@@ -82,6 +100,16 @@ def ingest_endpoint(event_id: str, req: IngestRequest,
     return ingest_mod.ingest_event(app.state.storage, app.state.fetch,
                                    app.state.caption_fn, event_id, masterdoc)
 
+@app.get("/api/events/{event_id}/analytics")
+def analytics_endpoint(event_id: str, x_instructor_key: str = Header(default="")):
+    # instructor key, NOT the event key — the event key sits on every learner VM
+    expected = get_settings().instructor_key
+    if expected and not secrets.compare_digest(x_instructor_key, expected):
+        raise HTTPException(401, "bad instructor key")
+    if get_event(app.state.storage, event_id) is None:
+        raise HTTPException(404, "unknown event")
+    return analytics.summarize(analytics.read_rows(app.state.storage, event_id))
+
 class QueryRequest(BaseModel):
     event_id: str
     deployment_id: str
@@ -111,21 +139,64 @@ def query_endpoint(req: QueryRequest, x_event_key: str = Header(default="")):
         guide = storage.load_text(req.event_id, "guide.md")
     except KeyError:
         raise HTTPException(409, "event not ingested yet")
+    settings = get_settings()
+    # abuse limits gate BEFORE any LLM spend (event key sits on hostile VMs)
+    usage_rows = metering.read_usage(storage, req.event_id)
+    retry_after = limits.rate_limited(usage_rows, req.deployment_id, time.time(),
+                                      settings.rate_limit_questions,
+                                      settings.rate_limit_window_seconds)
+    if retry_after is not None:
+        return JSONResponse(status_code=429, content={
+            "error": "rate_limited", "retry_after_seconds": retry_after})
+    if limits.budget_exhausted(usage_rows, settings.event_token_budget):
+        return JSONResponse(status_code=402, content={
+            "error": "event_budget_exhausted"})
     learn_search = getattr(app.state, "learn_search", search_learn)
     learn_results = learn_search(req.question)
-    settings = get_settings()
+    ref = hinting.task_ref(req.question)
+    level = hinting.get_hint_level(storage, req.event_id, req.deployment_id, ref)
+    messages = build_messages(guide, learn_results, req.question,
+                              screen_b64=req.screen_b64,
+                              hint_block=hinting.hint_block(level))
     resp = app.state.oai.chat.completions.create(
         model=settings.azure_openai_chat_deployment,
-        messages=build_messages(guide, learn_results, req.question,
-                                screen_b64=req.screen_b64),
+        messages=messages,
         max_tokens=800,
     )
-    usage = resp.usage
-    # ponytail: meter only the answer completion; add the locate call's usage
-    # (when the SDK reports it) if annotation cost ever matters.
-    metering.record(storage, req.event_id, req.deployment_id,
-                    usage.prompt_tokens, usage.completion_tokens)
+    usages = [resp.usage]
     answer = resp.choices[0].message.content or ""  # content-filtered replies return None
+    # Task 1c: cheap second pass — did the draft PERFORM instead of POINT?
+    checker_dep = (settings.azure_openai_checker_deployment
+                   or settings.azure_openai_chat_deployment)
+    ok, check_usage = checker_mod.check_answer(
+        app.state.oai, checker_dep, req.question, answer)
+    usages.append(check_usage)
+    checker_flagged = False
+    if not ok:  # regenerate ONCE, never loop
+        resp = app.state.oai.chat.completions.create(
+            model=settings.azure_openai_chat_deployment,
+            messages=messages + [{"role": "assistant", "content": answer},
+                                 {"role": "system", "content": REGEN_LINE}],
+            max_tokens=800,
+        )
+        usages.append(resp.usage)
+        answer = resp.choices[0].message.content or ""
+        ok, check_usage = checker_mod.check_answer(
+            app.state.oai, checker_dep, req.question, answer)
+        usages.append(check_usage)
+        checker_flagged = not ok
+        if checker_flagged:
+            log.warning("checker still flags PERFORM after regeneration: "
+                        "event=%s deployment=%s", req.event_id, req.deployment_id)
+    hinting.bump(storage, req.event_id, req.deployment_id, ref)
+    # ponytail: meter all completions in this request (answer + checker + regen);
+    # the annotate locate call stays unmetered until the SDK reports its usage.
+    metering.record(storage, req.event_id, req.deployment_id,
+                    sum(u.prompt_tokens for u in usages),
+                    sum(u.completion_tokens for u in usages),
+                    tokens_cached=sum(metering.cached_tokens(u) for u in usages))
+    analytics.record(storage, req.event_id, req.deployment_id, ref,
+                     req.question, level, checker_flagged)
     result = {"answer": answer, "sources": learn_results}
     lines = answer.rstrip().splitlines()
     if lines and lines[-1].startswith("ANNOTATE:"):
@@ -137,4 +208,5 @@ def query_endpoint(req: QueryRequest, x_event_key: str = Header(default="")):
             annotation = None
         if annotation:
             result["annotation"] = annotation
+    result["answer"] = _strip_inject(result["answer"])
     return result
