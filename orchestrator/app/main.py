@@ -42,12 +42,15 @@ def _wire():
         app.state.storage = get_storage(settings)
     if not hasattr(app.state, "fetch"):
         app.state.fetch = ingest_mod.http_fetch
-    # ponytail: no endpoint = no client (tests inject their own; prod always has env)
-    if not hasattr(app.state, "caption_fn") and settings.azure_openai_endpoint:
-        from app.captioner import Captioner, make_openai_client
-        oai = make_openai_client(settings)
-        app.state.oai = oai
-        app.state.caption_fn = Captioner(oai, settings.azure_openai_chat_deployment).caption
+    if not hasattr(app.state, "caption_fn"):
+        if settings.azure_openai_endpoint:
+            from app.captioner import Captioner, make_openai_client
+            oai = make_openai_client(settings)
+            app.state.oai = oai
+            app.state.caption_fn = Captioner(oai, settings.azure_openai_chat_deployment).caption
+        else:
+            # no Azure OpenAI env: ingest still works, images get a placeholder caption
+            app.state.caption_fn = lambda b, mime="image/png": "screenshot (captioning disabled — no AZURE_OPENAI_ENDPOINT)"
 
 PORTAL = Path(__file__).parent / "portal" / "index.html"
 STATIC = Path(__file__).parent.parent / "static"

@@ -1,0 +1,3 @@
+# Install everything the Python side needs from the repo root:
+#   pip install -r requirements.txt
+-r orchestrator/requirements.txt

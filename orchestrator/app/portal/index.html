@@ -532,7 +532,7 @@ button.ghost:hover { border-color: var(--accent); background: var(--surface-2); 
     <p class="hint">Name your lab event; this generates an event ID and access key.</p>
     <div class="row">
       <input type="text" id="name" placeholder="e.g. AI Foundry Workshop — 2026-07-10" autocomplete="off">
-      <button class="primary" id="create-btn" onclick="createEvent()"><span class="spinner"></span><span>Create</span></button>
+      <button class="primary" id="create-btn" onclick="createLabEvent()"><span class="spinner"></span><span>Create</span></button>
     </div>
     <div class="error" id="create-error"></div>
   </section>
@@ -654,7 +654,8 @@ function postCreate(name) {
   return fetch('/api/events', { method: 'POST', headers, body: JSON.stringify({ name }) });
 }
 
-async function createEvent() {
+// renamed from createEvent: inline onclick resolves document.createEvent (DOM built-in) first
+async function createLabEvent() {
   const name = $('name').value.trim();
   clearError('create-error');
   if (!name) { showError('create-error', 'Please enter an event name.'); return; }
