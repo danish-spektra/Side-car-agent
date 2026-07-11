@@ -91,15 +91,34 @@ def _check_event(event_id: str, key: str):
     if not verify_key(app.state.storage, event_id, key):
         raise HTTPException(401, "bad event key")
 
-@app.post("/api/events/{event_id}/ingest")
-def ingest_endpoint(event_id: str, req: IngestRequest,
-                    x_event_key: str = Header(default="")):
-    _check_event(event_id, x_event_key)
+def _load_masterdoc(req: IngestRequest):
+    """Fetch + validate the masterdoc; 422 with a readable message on anything wrong."""
     masterdoc = req.masterdoc
     if masterdoc is None:
         if not req.masterdoc_url:
             raise HTTPException(422, "masterdoc or masterdoc_url required")
-        masterdoc = json.loads(app.state.fetch(req.masterdoc_url).decode("utf-8"))
+        try:
+            masterdoc = json.loads(app.state.fetch(req.masterdoc_url).decode("utf-8"))
+        except Exception as e:
+            raise HTTPException(422, f"could not fetch/parse masterdoc URL: {e}")
+    try:
+        ingest_mod.parse_masterdoc(masterdoc)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return masterdoc
+
+@app.post("/api/events/{event_id}/preview")
+def preview_endpoint(event_id: str, req: IngestRequest,
+                     x_event_key: str = Header(default="")):
+    # dry run: shows exactly which files ingest would fetch — nothing is saved
+    _check_event(event_id, x_event_key)
+    return ingest_mod.parse_masterdoc(_load_masterdoc(req))
+
+@app.post("/api/events/{event_id}/ingest")
+def ingest_endpoint(event_id: str, req: IngestRequest,
+                    x_event_key: str = Header(default="")):
+    _check_event(event_id, x_event_key)
+    masterdoc = _load_masterdoc(req)
     return ingest_mod.ingest_event(app.state.storage, app.state.fetch,
                                    app.state.caption_fn, event_id, masterdoc)
 

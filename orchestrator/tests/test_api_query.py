@@ -280,3 +280,17 @@ def test_screen_b64_makes_user_message_multimodal(client):
     parts = user["content"]
     assert parts[0] == {"type": "text", "text": "where is it?"}
     assert parts[1]["image_url"]["url"] == f"data:image/png;base64,{screen}"
+
+# --- screen-grounding: constant prompt lines (prefix-cache safe, prompt-only feature) ---
+
+def test_system_prompt_has_screen_grounding_instruction(client):
+    ev = _make_ready_event(client)
+    client.post("/api/query",
+                json={"event_id": ev["event_id"], "deployment_id": "d", "question": "q"},
+                headers={"X-Event-Key": ev["key"]})
+    system = app.state.oai.chat.completions.calls[0]["messages"][0]["content"]
+    # instruction is constant text in the stable prefix — identical with or
+    # without an attached screen, so the prompt cache is preserved
+    assert "compare" in system.lower() and "step" in system.lower()
+    assert "wrong place" in system.lower()
+    assert system.index("wrong place") < system.index("LAB GUIDE:")

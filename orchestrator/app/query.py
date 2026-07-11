@@ -16,6 +16,12 @@ Rules:
   If the learner attached their live screen and the element is visible there,
   end with: ANNOTATE: LIVE | <short description>
   Otherwise never output an ANNOTATE line.
+- If the learner attached their live screen, first infer which exercise/task
+  they appear to be on from what is visible, and compare it against the step
+  their question is about (use the "> [Screenshot]" descriptions as the
+  expected state). If they are in the wrong place, say so plainly and point
+  them to the right screen BEFORE answering the question. If you cannot tell
+  where they are, just answer normally — never guess a mismatch.
 
 LAB GUIDE:
 {guide}

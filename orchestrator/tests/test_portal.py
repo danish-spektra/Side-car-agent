@@ -20,3 +20,10 @@ def test_sidecar_zip_404_when_missing(tmp_path, monkeypatch):
     r = client.get("/download/sidecar.zip")
     assert r.status_code == 404
     assert "not built yet" in r.json()["detail"]
+
+def test_portal_has_preview_modal(tmp_path):
+    app.state.storage = LocalStorage(str(tmp_path))
+    client = TestClient(app)
+    r = client.get("/")
+    assert "preview-modal" in r.text          # the confirm-before-ingest popup
+    assert "previewIngest" in r.text

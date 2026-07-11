@@ -488,6 +488,93 @@ button.ghost:hover { border-color: var(--accent); background: var(--surface-2); 
   .live-dot::after { animation: none; opacity: 0; }
 }
 
+/* --- Ingest preview modal: confirm exactly what will be fetched ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(15, 11, 31, .35);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  backdrop-filter: blur(10px) saturate(1.2);
+  animation: overlay-in .18s ease-out;
+}
+@keyframes overlay-in { from { opacity: 0; } }
+.modal {
+  width: min(560px, 100%);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  -webkit-backdrop-filter: blur(26px) saturate(1.6);
+  backdrop-filter: blur(26px) saturate(1.6);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  padding: 1.4rem 1.6rem 1.5rem;
+  animation: modal-in .22s cubic-bezier(.2, .9, .3, 1.2);
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .modal { background: var(--surface-solid); }
+}
+@keyframes modal-in { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+@media (prefers-reduced-motion: reduce) {
+  .modal, .modal-overlay { animation: none; }
+}
+.modal h3 {
+  font-family: Sora, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -.015em;
+  margin: 0 0 .15rem;
+}
+.modal .modal-sub { color: var(--text-muted); font-size: .82rem; margin: 0 0 1rem; }
+.modal .modal-sub strong { color: var(--text); }
+.preview-files {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  background: var(--surface-2);
+  padding: .3rem .9rem;
+  margin: 0;
+}
+.preview-file {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  padding: .45rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: .85rem;
+}
+.preview-file:last-child { border-bottom: none; }
+.preview-file .ord {
+  flex: none;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .7rem; font-weight: 700;
+  background: var(--code-bg);
+  color: var(--accent);
+  border: 1px solid var(--border);
+}
+.preview-file .fname {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: .82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: .6rem;
+  margin-top: 1.1rem;
+}
 @media (max-width: 980px) {
   .grid { grid-template-columns: 1fr; }
   .panel { min-height: 0; }
@@ -547,7 +634,7 @@ button.ghost:hover { border-color: var(--accent); background: var(--surface-2); 
     <p class="hint">Paste the raw <code>masterdoc.json</code> URL for the lab guide.</p>
     <div class="row">
       <input type="url" id="masterdoc" placeholder="https://…/masterdoc.json" autocomplete="off">
-      <button class="primary" id="ingest-btn" onclick="ingest()"><span class="spinner"></span><span>Ingest</span></button>
+      <button class="primary" id="ingest-btn" onclick="previewIngest()"><span class="spinner"></span><span>Preview</span></button>
     </div>
     <div class="badge" id="ingest-badge"></div>
     <div class="error" id="ingest-error"></div>
@@ -630,6 +717,18 @@ button.ghost:hover { border-color: var(--accent); background: var(--surface-2); 
   </div>
 </div>
 
+<div class="modal-overlay" id="preview-modal" hidden onclick="if(event.target===this)closePreview()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="preview-title">
+    <h3 id="preview-title">Confirm lab guide</h3>
+    <p class="modal-sub" id="preview-sub"></p>
+    <div class="preview-files" id="preview-files"></div>
+    <div class="modal-actions">
+      <button class="ghost" onclick="closePreview()">Cancel</button>
+      <button class="primary" id="confirm-btn" onclick="confirmIngest()"><span class="spinner"></span><span>Confirm &amp; Ingest</span></button>
+    </div>
+  </div>
+</div>
+
 <script>
 'use strict';
 let ev = null;
@@ -681,7 +780,8 @@ async function createLabEvent() {
   }
 }
 
-async function ingest() {
+// preview first: show exactly which files the masterdoc lists, then confirm
+async function previewIngest() {
   const url = $('masterdoc').value.trim();
   clearError('ingest-error');
   $('ingest-badge').classList.remove('show');
@@ -689,19 +789,52 @@ async function ingest() {
   const btn = $('ingest-btn');
   setBusy(btn, true);
   try {
-    const r = await fetch(`/api/events/${ev.event_id}/ingest`, {
+    const r = await fetch(`/api/events/${ev.event_id}/preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Event-Key': ev.key },
       body: JSON.stringify({ masterdoc_url: url })
     });
     const body = await r.json();
     if (!r.ok) throw new Error(body.detail ? JSON.stringify(body.detail) : JSON.stringify(body));
+    $('preview-sub').innerHTML = '<strong>' + esc(body.name || 'Untitled lab') + '</strong>' +
+      (body.language ? ' &middot; ' + esc(body.language) : '') +
+      ' &middot; ' + body.count + ' file' + (body.count === 1 ? '' : 's') +
+      ' will be fetched — nothing else in the repo is touched.';
+    $('preview-files').innerHTML = body.files.map((f, i) =>
+      '<div class="preview-file"><span class="ord">' + (i + 1) + '</span>' +
+      '<span class="fname" title="' + esc(f) + '">' + esc(f.split('/').pop()) + '</span></div>'
+    ).join('');
+    $('preview-modal').hidden = false;
+  } catch (e) {
+    showError('ingest-error', 'Preview failed: ' + e.message);
+  } finally {
+    setBusy(btn, false);
+  }
+}
+function closePreview() { $('preview-modal').hidden = true; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePreview(); });
+
+async function confirmIngest() {
+  const btn = $('confirm-btn');
+  setBusy(btn, true);
+  try {
+    const r = await fetch(`/api/events/${ev.event_id}/ingest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Event-Key': ev.key },
+      body: JSON.stringify({ masterdoc_url: $('masterdoc').value.trim() })
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail ? JSON.stringify(body.detail) : JSON.stringify(body));
     const badge = $('ingest-badge');
-    badge.textContent = `Ingested ${body.files} files, ${body.images} images`;
+    badge.textContent = body.cached
+      ? `Guide reused from cache — ${body.files} files, ${body.images} images (no re-ingest needed)`
+      : `Ingested ${body.files} files, ${body.images} images`;
     badge.classList.add('show');
     $('step2').classList.add('done');
     $('step3').classList.add('done');
+    closePreview();
   } catch (e) {
+    closePreview();
     showError('ingest-error', 'Ingest failed: ' + e.message);
   } finally {
     setBusy(btn, false);
