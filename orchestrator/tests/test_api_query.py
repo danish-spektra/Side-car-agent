@@ -294,3 +294,62 @@ def test_system_prompt_has_screen_grounding_instruction(client):
     assert "compare" in system.lower() and "step" in system.lower()
     assert "wrong place" in system.lower()
     assert system.index("wrong place") < system.index("LAB GUIDE:")
+
+# --- LEARN_MORE deepening: guide doesn't cover it -> fetch the full article ---
+
+def test_learn_more_marker_triggers_deepened_answer(client):
+    ev = _make_ready_event(client)
+    app.state.oai = FakeOAI(scripts=[
+        "The guide does not cover this.\nLEARN_MORE: create azure ai search index",
+        "Deepened: per the MS Learn article, open the Indexes blade.",
+        "POINT",                                    # checker on the final answer
+    ])
+    fetched = []
+    app.state.learn_fetch = lambda url: fetched.append(url) or "ARTICLE: full index docs"
+    r = _query(client, ev)
+    assert r.status_code == 200
+    assert r.json()["answer"] == "Deepened: per the MS Learn article, open the Indexes blade."
+    assert "LEARN_MORE" not in r.json()["answer"]
+    assert fetched == ["https://learn.microsoft.com/d"]      # top search result
+    calls = app.state.oai.chat.completions.calls
+    assert len(calls) == 3                                   # answer + deepen + checker
+    assert any("ARTICLE: full index docs" in str(m.get("content"))
+               for m in calls[1]["messages"])                # article fed to second pass
+    rows = read_usage(app.state.storage, ev["event_id"])
+    assert rows[0]["tokens_in"] == 3 * 900                   # every call metered
+
+def test_learn_more_marker_stripped_when_fetch_fails(client):
+    ev = _make_ready_event(client)
+    app.state.oai = FakeOAI(scripts=[
+        "The guide does not cover this. Ask your instructor.\nLEARN_MORE: some query",
+        "POINT",
+    ])
+    app.state.learn_fetch = lambda url: ""                   # docs unreachable
+    r = _query(client, ev)
+    assert r.json()["answer"] == "The guide does not cover this. Ask your instructor."
+    assert len(app.state.oai.chat.completions.calls) == 2    # no deepen call
+
+def test_learn_more_never_loops(client):
+    ev = _make_ready_event(client)
+    app.state.oai = FakeOAI(scripts=[
+        "draft\nLEARN_MORE: q1",
+        "still unsure\nLEARN_MORE: q2",                      # model misbehaves
+        "POINT",
+    ])
+    app.state.learn_fetch = lambda url: "ARTICLE"
+    r = _query(client, ev)
+    assert r.json()["answer"] == "still unsure"              # marker stripped, no 2nd fetch
+    assert len(app.state.oai.chat.completions.calls) == 3
+
+# --- reasoning-model params: gpt-5.x rejects max_tokens ---
+
+def test_completions_use_max_completion_tokens(client):
+    ev = _make_ready_event(client)
+    _query(client, ev)
+    for call in app.state.oai.chat.completions.calls:
+        assert "max_tokens" not in call
+        assert call["max_completion_tokens"] > 0
+
+def test_default_deployment_is_reasoning_model():
+    from app.config import Settings
+    assert Settings().azure_openai_chat_deployment == "gpt-5.2"

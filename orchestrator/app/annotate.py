@@ -24,7 +24,7 @@ def locate_element(client, deployment: str, image_bytes: bytes, target: str,
                 {"type": "image_url", "image_url": {"url": data_url}},
             ],
         }],
-        max_tokens=100,
+        max_completion_tokens=600,  # includes reasoning tokens on gpt-5.x
     )
     m = JSON_RE.search(resp.choices[0].message.content)
     if not m:

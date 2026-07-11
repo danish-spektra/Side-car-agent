@@ -18,7 +18,7 @@ from app import hinting
 from app import ingest as ingest_mod
 from app import limits
 from app import metering
-from app.mslearn import search_learn
+from app.mslearn import fetch_learn_page, search_learn
 from app.query import build_messages
 from app.storage import create_event, get_event, get_storage, verify_key
 
@@ -34,6 +34,14 @@ def _strip_inject(answer: str) -> str:
 
 REGEN_LINE = ("Your previous draft solved the step outright. Rewrite it to "
               "point and explain without giving the complete solution.")
+
+DEEPEN_LINE = ("FULL MS LEARN ARTICLE (fetched for your LEARN_MORE query — "
+               "answer the learner's question from it, following all the "
+               "rules; do not output LEARN_MORE again):\n\n")
+
+def _strip_learn_more(answer: str) -> str:
+    return "\n".join(l for l in answer.rstrip().splitlines()
+                     if not l.startswith("LEARN_MORE:")).rstrip()
 
 @app.on_event("startup")
 def _wire():
@@ -183,10 +191,34 @@ def query_endpoint(req: QueryRequest, x_event_key: str = Header(default="")):
     resp = app.state.oai.chat.completions.create(
         model=settings.azure_openai_chat_deployment,
         messages=messages,
-        max_tokens=800,
+        max_completion_tokens=settings.answer_max_completion_tokens,
     )
     usages = [resp.usage]
     answer = resp.choices[0].message.content or ""  # content-filtered replies return None
+    # LEARN_MORE deepening: guide + excerpts weren't enough — fetch the full
+    # MS Learn article ONCE and re-answer with it. Marker never reaches learner.
+    lines = answer.rstrip().splitlines()
+    if lines and lines[-1].startswith("LEARN_MORE:"):
+        learn_query = lines[-1][len("LEARN_MORE:"):].strip()
+        learn_fetch = getattr(app.state, "learn_fetch", fetch_learn_page)
+        deep_results = learn_search(learn_query) or learn_results
+        article = ""
+        for res in deep_results:
+            article = learn_fetch(res["url"])
+            if article:
+                learn_results = deep_results  # surface what we actually used
+                break
+        if article:
+            resp = app.state.oai.chat.completions.create(
+                model=settings.azure_openai_chat_deployment,
+                messages=messages + [
+                    {"role": "assistant", "content": answer},
+                    {"role": "system", "content": DEEPEN_LINE + article}],
+                max_completion_tokens=settings.answer_max_completion_tokens,
+            )
+            usages.append(resp.usage)
+            answer = resp.choices[0].message.content or ""
+        answer = _strip_learn_more(answer)
     # Task 1c: cheap second pass — did the draft PERFORM instead of POINT?
     checker_dep = (settings.azure_openai_checker_deployment
                    or settings.azure_openai_chat_deployment)
@@ -199,7 +231,7 @@ def query_endpoint(req: QueryRequest, x_event_key: str = Header(default="")):
             model=settings.azure_openai_chat_deployment,
             messages=messages + [{"role": "assistant", "content": answer},
                                  {"role": "system", "content": REGEN_LINE}],
-            max_tokens=800,
+            max_completion_tokens=settings.answer_max_completion_tokens,
         )
         usages.append(resp.usage)
         answer = resp.choices[0].message.content or ""

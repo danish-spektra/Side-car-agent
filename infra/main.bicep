@@ -2,10 +2,10 @@ targetScope = 'resourceGroup'
 
 param location string = resourceGroup().location
 param environmentName string
-// Pin the newest GA chat model available in the region at deploy time.
-// gpt-4o is the safe default; override with e.g. GPT-5.x names once confirmed GA.
-param chatModelName string = 'gpt-4o'
-param chatModelVersion string = '2024-11-20'
+// Pin the newest GA reasoning model available in the region at deploy time.
+// gpt-4o is deprecated; gpt-5.2 (2025-12-11) supports Chat Completions + vision.
+param chatModelName string = 'gpt-5.2'
+param chatModelVersion string = '2025-12-11'
 param chatDeploymentName string = 'chat'
 @secure()
 param instructorKey string = ''
