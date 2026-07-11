@@ -25,7 +25,7 @@ Install these before you start:
 2. **Go 1.22 or newer** — only needed to build the sidecar agent
    (skip it if you only want the orchestrator and portal).
 3. **PowerShell** — the sidecar build script is `sidecar/build.ps1` (Windows).
-4. **An Azure OpenAI resource** with a chat deployment (for example `gpt-4o`)
+4. **An Azure OpenAI resource** with a chat deployment (for example `gpt-5.2`)
    — only needed for real answers. You can start the portal, create an event,
    and ingest a guide **without any Azure credentials**; image captions are
    simply skipped until credentials are provided.
@@ -62,14 +62,14 @@ explore the portal and ingestion.
 # PowerShell
 $env:AZURE_OPENAI_ENDPOINT        = "https://<your-resource>.openai.azure.com"
 $env:AZURE_OPENAI_API_KEY         = "<key>"
-$env:AZURE_OPENAI_CHAT_DEPLOYMENT = "gpt-4o"        # your deployment name
+$env:AZURE_OPENAI_CHAT_DEPLOYMENT = "gpt-5.2"       # your deployment name
 ```
 
 ```bash
 # bash
 export AZURE_OPENAI_ENDPOINT=https://<your-resource>.openai.azure.com
 export AZURE_OPENAI_API_KEY=<key>
-export AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o
+export AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-5.2
 ```
 
 ### Step 4 — Start the orchestrator
@@ -90,7 +90,10 @@ In the portal:
 
 1. **Create event** — type any name and press **Create**.
 2. **Ingest lab guide** — paste `http://127.0.0.1:9000/masterdoc.json` and
-   press **Ingest**.
+   press **Preview**. A popup lists exactly which files the masterdoc
+   references (nothing else in the repo is ever fetched) — press
+   **Confirm & Ingest**. Re-ingesting the same unchanged guide later reuses
+   the cached enriched copy instantly, with zero captioning cost.
 3. **Deploy values** — the portal now shows `sidecarEventID`,
    `sidecarEndpoint`, and `sidecarKey`. Keep these; the sidecar (and a real
    CloudLabs template) needs them.
@@ -203,8 +206,10 @@ All settings are environment variables (see `orchestrator/app/config.py`):
 |---|---|---|
 | `AZURE_OPENAI_ENDPOINT` | *(empty)* | Azure OpenAI endpoint; empty disables LLM features |
 | `AZURE_OPENAI_API_KEY` | *(empty)* | Azure OpenAI key |
-| `AZURE_OPENAI_CHAT_DEPLOYMENT` | `gpt-4o` | Chat deployment name |
+| `AZURE_OPENAI_CHAT_DEPLOYMENT` | `gpt-5.2` | Chat deployment name (reasoning model; gpt-4o is deprecated) |
 | `AZURE_OPENAI_CHECKER_DEPLOYMENT` | *(empty)* | Cheap second-pass checker; empty = reuse chat deployment |
+| `AZURE_OPENAI_API_VERSION` | `2025-04-01-preview` | API version; gpt-5.x parameters need a recent one |
+| `ANSWER_MAX_COMPLETION_TOKENS` | `4000` | Per-answer cap, including hidden reasoning tokens |
 | `INSTRUCTOR_KEY` | *(empty)* | Gates event creation and analytics; empty = open (local dev) |
 | `STORAGE_BACKEND` | `local` | `local` (files under `DATA_DIR`) or `blob` (Azure Storage) |
 | `DATA_DIR` | `./data` | Where local storage writes |
@@ -223,6 +228,30 @@ All settings are environment variables (see `orchestrator/app/config.py`):
 | `go: command not found` when building the sidecar | Install Go and make sure it is on `PATH` (`$env:Path = "C:\Program Files\Go\bin;$env:Path"`). |
 
 ## How it behaves (design highlights)
+
+### Ingest preview and the lab cache
+
+Ingest is a two-step flow: **Preview** parses and validates the masterdoc
+(clear 422 on anything that isn't one) and pops up the exact ordered file list
+the ingest would fetch — only `Files[]` entries from the masterdoc are ever
+pulled, never the rest of the repo. After **Confirm & Ingest**, the enriched
+guide is cached per lab: the lab's identity is a hash of its file-URL list
+(stable forever), versioned by a content hash of the fetched markdown. Running
+the same lab for a new cohort reuses the cache instantly (zero captioning
+cost); an updated guide is detected automatically, re-ingested once, and
+**overwrites** the old cache entry — one small text blob per lab, ever.
+
+### MS Learn deepening (`LEARN_MORE`)
+
+MS Learn search excerpts accompany every question. When neither the guide nor
+the excerpts cover an Azure/product question — or the portal has changed and
+the guide's steps no longer match what the learner sees — the model ends its
+draft with a `LEARN_MORE: <query>` marker (same marker-protocol pattern as
+`ANNOTATE`). The orchestrator then fetches the **full article** from
+`learn.microsoft.com` (hard domain allowlist), and asks the model to re-answer
+from it — once, never looping, fully metered. The marker never reaches the
+learner; if the fetch fails, the original "the guide doesn't cover this"
+answer is returned.
 
 ### Graduated hinting
 
@@ -255,7 +284,11 @@ needed repeated hints there), and a recent-questions feed.
 Answers can include an annotated guide screenshot (rendered in the chat with a
 caption, click to open full size), and the "Include my screen" toggle sends a
 one-shot capture of the VM's screen with the question. If capture fails, the
-question is still sent text-only.
+question is still sent text-only. When a screen is attached, the model also
+compares where the learner *actually is* against the step their question is
+about (using the guide's ingest-time screenshot captions as the expected
+state) and flags "you're in the wrong place" before answering — and it never
+guesses a mismatch it can't see.
 
 ### Prompt caching
 

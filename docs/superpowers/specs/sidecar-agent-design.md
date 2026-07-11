@@ -130,6 +130,14 @@ Then a common pipeline, per markdown file in `Order`:
 Vision runs **at ingest, once per guide, centrally** — never at query time — so every
 learner query stays text-only, fast, and cheap.
 
+> **Update 2026-07-11 (v3):** ingest is preceded by a **preview/confirm** step
+> (`POST /preview` — validates the masterdoc, lists the exact ordered files that
+> would be fetched, saves nothing). Enriched guides are **cached per lab**: lab
+> identity = hash of the masterdoc's file-URL list (stable), versioned by a
+> content hash of the fetched markdown. Unchanged guide → new events reuse the
+> cache with zero captioning; updated guide → re-ingested once, overwriting the
+> same cache entry (no accumulation).
+
 ## 7. Flows
 
 ### Instructor — before the event (once)
@@ -148,7 +156,11 @@ learner query stays text-only, fast, and cheap.
 2. Types "stuck on Task 2, can't find the option" → sidecar sends
    `{question, eventID}` → orchestrator loads that event's enriched guide + relevant
    MS Learn → LLM → **grounded answer that explains and points, never performs the
-   step**, with a citation to the guide step it came from.
+   step**, with a citation to the guide step it came from. *(v3)* If neither the
+   guide nor the search excerpts cover an Azure/product question — or the portal
+   has drifted from the guide — the model emits a `LEARN_MORE: <query>` marker
+   and the orchestrator fetches the **full MS Learn article** (learn.microsoft.com
+   only) for one deepened re-answer.
 3. Isolation: the sidecar only knows its own `eventID`, so it can only ever retrieve
    its own lab's guide.
 
@@ -186,9 +198,9 @@ wall). No billing engine now; the log *is* the foundation.
 - **Sidecar:** Go — single static, zero-dependency binary; embeds the web UI; runs as
   a Windows service. Holds only the scoped orchestrator key.
 - **Orchestrator + portal:** Python / FastAPI.
-- **LLM + vision:** Azure OpenAI on the central RG. Latest GA multimodal chat model
-  (per user: "gpt-chat-latest" / GPT-5.x tier — pinned at build time to what the MSDN
-  region offers, `gpt-4o` as fallback) for both Q&A and ingest captioning;
+- **LLM + vision:** Azure OpenAI on the central RG. Default `gpt-5.2` (reasoning
+  model, Chat Completions + vision; `gpt-4o` is deprecated) — pinned at `azd up`
+  time to what the MSDN region offers — for both Q&A and ingest captioning;
   `gpt-image-2` deployment reserved for the roadmap image-generation feature.
 - **MS Learn:** official docs retrieval at query time via the orchestrator.
 - **Guide storage:** Azure Blob, keyed by `eventID`. **No Azure AI Search.**
