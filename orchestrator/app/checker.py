@@ -16,7 +16,7 @@ def check_answer(client, deployment: str, question: str, answer: str):
             {"role": "user",
              "content": f"QUESTION:\n{question}\n\nRESPONSE:\n{answer}"},
         ],
-        max_tokens=10,
+        max_completion_tokens=500,  # reasoning tokens count too; verdict itself is one word
     )
     verdict = (resp.choices[0].message.content or "").strip().upper()
     return "PERFORM" not in verdict, resp.usage

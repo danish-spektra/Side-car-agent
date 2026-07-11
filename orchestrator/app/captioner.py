@@ -22,7 +22,7 @@ class Captioner:
                     {"type": "image_url", "image_url": {"url": data_url}},
                 ],
             }],
-            max_tokens=150,
+            max_completion_tokens=800,  # includes reasoning tokens on gpt-5.x
         )
         return resp.choices[0].message.content.strip()
 
@@ -31,5 +31,5 @@ def make_openai_client(settings):
     return AzureOpenAI(
         azure_endpoint=settings.azure_openai_endpoint,
         api_key=settings.azure_openai_api_key,
-        api_version="2024-06-01",
+        api_version=settings.azure_openai_api_version,
     )
