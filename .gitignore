@@ -13,6 +13,7 @@
 # Used by dotenv library to load environment variables.
 # .env
 
+
 # Ignore Byebug command history file.
 .byebug_history
 
@@ -59,6 +60,7 @@ build-iPhoneSimulator/
 reference-guide/
 reference-scripts/
 docs/superpower/specs/
+user-demo/
 
 # python
 __pycache__/

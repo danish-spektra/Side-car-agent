@@ -825,20 +825,43 @@ async function confirmIngest() {
     });
     const body = await r.json();
     if (!r.ok) throw new Error(body.detail ? JSON.stringify(body.detail) : JSON.stringify(body));
-    const badge = $('ingest-badge');
-    badge.textContent = body.cached
-      ? `Guide reused from cache — ${body.files} files, ${body.images} images (no re-ingest needed)`
-      : `Ingested ${body.files} files, ${body.images} images`;
-    badge.classList.add('show');
-    $('step2').classList.add('done');
-    $('step3').classList.add('done');
     closePreview();
+    // Ingest now runs in the background (captioning can take several minutes);
+    // poll status so the request never hits App Service's 230s timeout.
+    const badge = $('ingest-badge');
+    badge.textContent = 'Ingesting… fetching guide and captioning images. This can take a few minutes for image-heavy guides.';
+    badge.classList.add('show');
+    await pollIngest();
   } catch (e) {
     closePreview();
     showError('ingest-error', 'Ingest failed: ' + e.message);
   } finally {
     setBusy(btn, false);
   }
+}
+
+async function pollIngest() {
+  const badge = $('ingest-badge');
+  for (let i = 0; i < 150; i++) {  // ~12.5 min ceiling (5s * 150)
+    await new Promise(res => setTimeout(res, 5000));
+    let s;
+    try {
+      const r = await fetch(`/api/events/${ev.event_id}`, { headers: { 'X-Event-Key': ev.key } });
+      if (!r.ok) continue;
+      s = await r.json();
+    } catch { continue; }
+    if (s.status === 'ready') {
+      const st = s.stats || {};
+      badge.textContent = st.cached
+        ? `Guide reused from cache — ${st.files} files, ${st.images} images (no re-ingest needed)`
+        : `Ingested ${st.files} files, ${st.images} images`;
+      $('step2').classList.add('done');
+      $('step3').classList.add('done');
+      return;
+    }
+    if (s.status === 'error') throw new Error(s.error || 'ingest failed on the server');
+  }
+  throw new Error('still ingesting after 12 minutes — check the App Service log stream');
 }
 
 function maskedKey() {
