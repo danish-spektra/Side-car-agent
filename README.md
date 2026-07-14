@@ -1,315 +1,294 @@
-# CloudLabs Lab Assistant
+<div align="center">
 
-A grounded Q&A sidecar for CloudLabs learners. A small in-VM agent answers
-"I'm stuck on Task 2" questions using the lab's own guide plus MS Learn — and
-it never does the lab for the learner. Full design:
-`docs/superpowers/specs/sidecar-agent-design.md`.
+# ☁️ CloudLabs Lab Assistant
 
-![Instructor portal after creating an event, ingesting a guide, and starting the live pulse](docs/images/instructor-portal.png)
+**A tutor inside every lab VM — grounded in the lab's own guide, incapable of doing the lab for the learner.**
 
-## What is in this repository
+*It nudges. It points. It never hands over the answer sheet.*
 
-| Folder | What it is | Runs where |
+![Go](https://img.shields.io/badge/sidecar-Go-00ADD8?logo=go&logoColor=white)
+![Python](https://img.shields.io/badge/orchestrator-FastAPI-3776AB?logo=python&logoColor=white)
+![Azure OpenAI](https://img.shields.io/badge/brain-Azure%20OpenAI-0078D4?logo=microsoftazure&logoColor=white)
+![Deploy](https://img.shields.io/badge/deploy-azd%20up-5C2D91)
+
+</div>
+
+---
+
+## The gap
+
+Every hands-on lab has the same failure mode: a learner hits a wall at Task 3,
+there's no proctor in the room — or it's 11pm — and the lab gets abandoned.
+Support tickets pile up on questions the lab guide already answers, and
+instructors find out which task was broken *after* the event, not during it.
+
+This project closes that gap with two moving parts:
+
+| Component | What it is | Runs where |
 |---|---|---|
-| `orchestrator/` | FastAPI service: instructor portal, guide ingestion, Q&A API, analytics | Your machine (local) or Azure App Service |
-| `sidecar/` | Go agent + chat UI that runs inside each learner VM | Learner VM (or your machine for a demo) |
-| `scripts/` | CloudLabs integration pieces and a fake lab-guide server for local testing | Your machine / CloudLabs template |
-| `infra/` | Bicep for `azd up` (App Service + Azure OpenAI + Storage) | Azure |
-| `reference-guide/` | A sample lab guide used by the local demo | — |
+| **Sidecar agent** (`sidecar/`) | A single static Go binary with an embedded chat UI | Inside every learner VM |
+| **Orchestrator** (`orchestrator/`) | FastAPI service: instructor portal, guide ingestion, Q&A brain, live analytics | Azure App Service (or local) |
 
-## Prerequisites
+The full design rationale lives in `docs/superpowers/specs/sidecar-agent-design.md`.
 
-Install these before you start:
+---
 
-1. **Python 3.11 or newer** — runs the orchestrator.
-2. **Go 1.22 or newer** — only needed to build the sidecar agent
-   (skip it if you only want the orchestrator and portal).
-3. **PowerShell** — the sidecar build script is `sidecar/build.ps1` (Windows).
-4. **An Azure OpenAI resource** with a chat deployment (for example `gpt-5.2`)
-   — only needed for real answers. You can start the portal, create an event,
-   and ingest a guide **without any Azure credentials**; image captions are
-   simply skipped until credentials are provided.
-5. **Azure Developer CLI (`azd`)** — only needed if you deploy the
-   orchestrator to Azure.
+## The learner's side
 
-## Run it locally (step by step)
+One desktop shortcut, zero setup. The agent answers from the ingested lab
+guide plus MS Learn — and refuses, structurally, to do the work itself.
 
-All commands are run from the repository root.
+<p align="center">
+  <img src="docs/images/learner-agent.png" alt="Learner agent — welcome screen with suggested questions" width="760">
+</p>
 
-### Step 1 — Install the Python dependencies
+### 🎯 Graduated hinting — enforced, not vibes
+
+Asks are counted per learner, per task. The first ask gets a conceptual
+nudge; the second, a narrower pointer; the third onward, a full step
+reference with reasoning — but **never** resolved `<inject .../>` values or a
+copy-pasteable solution. Three layers keep it honest:
+
+1. The hint ladder is computed server-side from the ask counter — the model
+   can't be sweet-talked past it.
+2. A cheap second LLM pass classifies every draft as **PERFORM** or
+   **POINT**; PERFORM drafts are regenerated once.
+3. A hard post-filter strips `<inject .../>` tags from answers regardless of
+   what the model produced.
+
+### 🖥️ Show, don't describe — screen capture done right
+
+Click **Attach my screen** and the browser's native picker opens — the
+learner chooses a tab, a window, or the whole screen. Exactly one frame is
+grabbed (never a live share), and a preview tray shows precisely what will be
+sent before anything leaves the machine. One click on ✕ discards it.
+
+<p align="center">
+  <img src="docs/images/learner-capture.png" alt="Screen capture attached — the assistant spots the unchecked setting from the learner's screenshot" width="760">
+</p>
+
+With a screen in hand the model doesn't just answer — it compares where the
+learner *actually is* against where the guide says they should be, and calls
+out "you're on the wrong blade" before explaining anything. In embedded
+webviews without `getDisplayMedia`, the agent falls back to a one-shot
+capture of the VM's primary display, clearly labeled in the same tray.
+
+### 📚 Grounded first, deepened when needed
+
+Every answer starts from the ingested guide and MS Learn search excerpts.
+When neither covers the question — or the Azure portal has drifted from the
+guide's steps — the model emits a `LEARN_MORE: <query>` marker. The
+orchestrator fetches the **full article** from `learn.microsoft.com` (hard
+domain allowlist), re-answers from it once — metered, never looping — and the
+marker never reaches the learner. Answers can also embed an **annotated guide
+screenshot** pointing at the exact control, click-to-zoom.
+
+---
+
+## The instructor's side
+
+<p align="center">
+  <img src="docs/images/instructor-portal.png" alt="Instructor portal — event setup, guide ingestion with preview, deploy values, and the live learner pulse" width="900">
+</p>
+
+### 🔍 Ingest once, run forever
+
+**Preview** parses the masterdoc and shows the exact ordered file list before
+a single byte is fetched — only `Files[]` entries, never the rest of the
+repo. After **Confirm & Ingest**, the enriched guide is cached by content
+hash: the same lab for a new cohort re-ingests instantly at zero captioning
+cost, and an updated guide is detected and re-ingested automatically.
+
+### 📊 A live pulse, not a post-mortem
+
+The portal polls analytics every 10 seconds during the event: headline
+numbers, a per-task bar list (🔥 marks tasks where learners needed repeated
+hints), and a recent-questions feed. Task refs, questions, and hint levels
+are stored — **answers and screenshots never are**.
+
+### 🔒 Abuse-proof by construction
+
+The event key ships in plaintext on learner VMs, so the API assumes it will
+leak and gates *before* spending tokens: per-learner sliding-window rate
+limits (HTTP 429), a per-event token budget (HTTP 402), and a prompt layout
+ordered static-rules → guide → per-request content so Azure OpenAI's prompt
+cache keeps every learner in an event sharing one cached guide prefix.
+
+---
+
+## Quickstart (local, no Azure required)
+
+> Real answers need an Azure OpenAI chat deployment (e.g. `gpt-5.2`). The
+> portal, events, and ingestion all work with **no credentials at all** —
+> captioning is simply skipped.
+
+**Prerequisites:** Python 3.11+ · Go 1.22+ (sidecar build only) · `azd` (cloud deploy only)
+
+**Terminal 1 — dependencies and the fake lab-guide server:**
 
 ```powershell
 pip install -r requirements.txt
+python scripts/local_lab_server.py        # serves reference-guide/ on :9000
 ```
 
-### Step 2 — Start the fake lab-guide server
-
-This serves `reference-guide/` the same way CloudLabs serves a real guide, so
-you can test everything without a real lab.
+**Terminal 2 — the orchestrator (credentials optional):**
 
 ```powershell
-python scripts/local_lab_server.py
-```
-
-Leave it running. It listens on `http://127.0.0.1:9000`.
-
-### Step 3 — (Optional) Set your Azure OpenAI credentials
-
-Required only for real answers and image captioning. Skip this step to just
-explore the portal and ingestion.
-
-```powershell
-# PowerShell
 $env:AZURE_OPENAI_ENDPOINT        = "https://<your-resource>.openai.azure.com"
 $env:AZURE_OPENAI_API_KEY         = "<key>"
-$env:AZURE_OPENAI_CHAT_DEPLOYMENT = "gpt-5.2"       # your deployment name
-```
+$env:AZURE_OPENAI_CHAT_DEPLOYMENT = "gpt-5.2"
 
-```bash
-# bash
-export AZURE_OPENAI_ENDPOINT=https://<your-resource>.openai.azure.com
-export AZURE_OPENAI_API_KEY=<key>
-export AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-5.2
-```
-
-### Step 4 — Start the orchestrator
-
-In a second terminal:
-
-```powershell
 cd orchestrator
 python -m uvicorn app.main:app --port 8000
 ```
 
-Open **http://127.0.0.1:8000** — you should see the instructor portal
-(the screenshot above).
+Open **http://127.0.0.1:8000** → create an event → paste
+`http://127.0.0.1:9000/masterdoc.json` → **Preview** → **Confirm & Ingest**.
+The portal prints three deploy values: `sidecarEventID`, `sidecarEndpoint`,
+`sidecarKey`.
 
-### Step 5 — Create an event and ingest the guide
-
-In the portal:
-
-1. **Create event** — type any name and press **Create**.
-2. **Ingest lab guide** — paste `http://127.0.0.1:9000/masterdoc.json` and
-   press **Preview**. A popup lists exactly which files the masterdoc
-   references (nothing else in the repo is ever fetched) — press
-   **Confirm & Ingest**. Re-ingesting the same unchanged guide later reuses
-   the cached enriched copy instantly, with zero captioning cost.
-3. **Deploy values** — the portal now shows `sidecarEventID`,
-   `sidecarEndpoint`, and `sidecarKey`. Keep these; the sidecar (and a real
-   CloudLabs template) needs them.
-
-### Step 6 — Build and run the sidecar (the learner side)
-
-Requires Go. In a third terminal:
+**Terminal 3 — the learner side:**
 
 ```powershell
-pwsh sidecar/build.ps1        # produces orchestrator/static/sidecar.zip
+pwsh sidecar/build.ps1        # → orchestrator/static/sidecar.zip
 ```
 
-Unzip `orchestrator/static/sidecar.zip` anywhere, then create a
-`config.json` next to `sidecar.exe` with the three values from Step 5:
+Unzip it anywhere and drop a `config.json` next to `sidecar.exe`:
 
 ```json
 {
   "endpoint":      "http://127.0.0.1:8000",
-  "event_id":      "<sidecarEventID from the portal>",
-  "key":           "<sidecarKey from the portal>",
+  "event_id":      "<sidecarEventID>",
+  "key":           "<sidecarKey>",
   "deployment_id": "demo-machine"
 }
 ```
 
 Run `sidecar.exe`, open **http://127.0.0.1:7788**, and ask:
 *"I'm stuck on Task 1, where do I search for AI Search?"*
-(Real answers require the credentials from Step 3.)
 
-### Quick smoke test (no Azure at all)
+---
 
-Verifies the fake guide server without touching Azure OpenAI:
+## Wiring it into a real CloudLabs lab
 
-```bash
-python scripts/local_lab_server.py &
-curl http://127.0.0.1:9000/masterdoc.json        # lists reference-guide/*.md
-curl -I http://127.0.0.1:9000/Labs/Exercise-1.md # expect 200
-kill %1
-```
+Three portal values, three template touches. Reference copies:
+`scripts/arm-snippet.md` and `scripts/demo-integration.md`.
 
-## Wire it into a real CloudLabs lab
-
-Three pieces must be in place: the ARM template parameters, the deployment
-(logon) script, and the install function. The portal prints the three values
-after ingest — paste them into the CloudLabs template parameters before
-launching the event.
-
-### 1. `deploy.json` — add three parameters
+**① ARM template (`deploy.json`) — three parameters and one variable:**
 
 ```json
-"sidecarEventID":  { "type": "string" },
-"sidecarEndpoint": { "type": "string" },
-"sidecarKey":      { "type": "securestring" }
+"parameters": {
+  "sidecarEventID":  { "type": "string" },
+  "sidecarEndpoint": { "type": "string" },
+  "sidecarKey":      { "type": "securestring" }
+},
+"variables": {
+  "sidecarArgs": "[concat(' -SidecarEventID ', parameters('sidecarEventID'), ' -SidecarEndpoint ', parameters('sidecarEndpoint'), ' -SidecarKey ', parameters('sidecarKey'))]"
+}
 ```
 
-### 2. `deploy.json` — add a variable (next to `cloudlabsCommon`)
+…then append `variables('sidecarArgs')` to the existing `commandToExecute`.
 
-```json
-"sidecarArgs": "[concat(' -SidecarEventID ', parameters('sidecarEventID'), ' -SidecarEndpoint ', parameters('sidecarEndpoint'), ' -SidecarKey ', parameters('sidecarKey'))]"
-```
-
-### 3. `deploy.json` — thread the variable into `commandToExecute`
-
-```json
-"commandToExecute": "[concat('powershell.exe -ExecutionPolicy Unrestricted -File <labscript>.ps1', variables('cloudlabsCommon'), variables('Enable-CloudLabsEmbeddedShadow'), variables('sidecarArgs'))]"
-```
-
-### 4. Deployment script (for example `demo.ps1`) — accept and use the values
-
-Add the three parameters to the script's `Param()` block:
+**② Lab logon script — accept the values, add one line after software installs:**
 
 ```powershell
-[string]$SidecarEventID,
-[string]$SidecarEndpoint,
-[string]$SidecarKey
+Param(..., [string]$SidecarEventID, [string]$SidecarEndpoint, [string]$SidecarKey)
+
+InstallSidecarAgent -SidecarEventID $SidecarEventID -SidecarEndpoint $SidecarEndpoint `
+                    -SidecarKey $SidecarKey -DeploymentID $DeploymentID
 ```
 
-Then add one line after the software installs:
+**③ Merge `scripts/InstallSidecarAgent.ps1` into `cloudlabs-windows-functions.ps1`.**
+The function is the entire VM-side story — download, configure, persist, shortcut:
 
 ```powershell
-InstallSidecarAgent -SidecarEventID $SidecarEventID -SidecarEndpoint $SidecarEndpoint -SidecarKey $SidecarKey -DeploymentID $DeploymentID
+# fetch the agent from the orchestrator itself
+Invoke-WebRequest "$SidecarEndpoint/download/sidecar.zip" -OutFile "$dir\sidecar.zip"
+Expand-Archive "$dir\sidecar.zip" -DestinationPath $dir -Force
+
+# stamp the per-event config
+@{ endpoint = $SidecarEndpoint; event_id = $SidecarEventID
+   key = $SidecarKey; deployment_id = $DeploymentID } |
+  ConvertTo-Json | Set-Content "$dir\config.json"
+
+# run at every logon + desktop shortcut to http://127.0.0.1:7788
+Register-ScheduledTask 'CloudLabsLabAssistant' -Action $Action -Trigger $Trigger -Force
 ```
 
-### 5. Merge the install function
+Paste the three values from the portal into the CloudLabs template parameters
+before launching the event — that's the whole integration.
 
-Merge `scripts/InstallSidecarAgent.ps1` into
-`cloudlabs-windows-functions.ps1`. It downloads `sidecar.zip` from the
-orchestrator, writes the per-event `config.json`, registers a logon task,
-and drops a **Lab Assistant** shortcut on the desktop.
+---
 
-Reference copies of these snippets live in `scripts/arm-snippet.md` and
-`scripts/demo-integration.md`.
-
-## Deploy the orchestrator to Azure (one command)
+## Deploying the orchestrator to Azure
 
 ```bash
-azd config set alpha.resourceGroupDeployments on   # Bicep is resource-group scoped
+azd config set alpha.resourceGroupDeployments on
 azd up
 ```
 
-Pick the target resource group when prompted (or set it up front with
-`azd env set AZURE_RESOURCE_GROUP <rg-name>`). Set the `instructorKey`
-parameter (`INSTRUCTOR_KEY`) to gate event creation; leave it empty for open
-local development.
+Set `INSTRUCTOR_KEY` to gate event creation (empty = open, for local dev).
 
-## Configuration reference
+> **Shipping a sidecar change?** The UI is embedded in the binary, so the
+> chain is: `pwsh sidecar/build.ps1` → `azd deploy orchestrator` → learner
+> VMs pick up the new zip at next logon.
 
-All settings are environment variables (see `orchestrator/app/config.py`):
+---
+
+## Reference
+
+<details>
+<summary><b>Configuration</b> — environment variables (<code>orchestrator/app/config.py</code>)</summary>
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `AZURE_OPENAI_ENDPOINT` | *(empty)* | Azure OpenAI endpoint; empty disables LLM features |
+| `AZURE_OPENAI_ENDPOINT` | *(empty)* | Empty disables LLM features gracefully |
 | `AZURE_OPENAI_API_KEY` | *(empty)* | Azure OpenAI key |
-| `AZURE_OPENAI_CHAT_DEPLOYMENT` | `gpt-5.2` | Chat deployment name (reasoning model; gpt-4o is deprecated) |
-| `AZURE_OPENAI_CHECKER_DEPLOYMENT` | *(empty)* | Cheap second-pass checker; empty = reuse chat deployment |
-| `AZURE_OPENAI_API_VERSION` | `2025-04-01-preview` | API version; gpt-5.x parameters need a recent one |
-| `ANSWER_MAX_COMPLETION_TOKENS` | `4000` | Per-answer cap, including hidden reasoning tokens |
-| `INSTRUCTOR_KEY` | *(empty)* | Gates event creation and analytics; empty = open (local dev) |
-| `STORAGE_BACKEND` | `local` | `local` (files under `DATA_DIR`) or `blob` (Azure Storage) |
+| `AZURE_OPENAI_CHAT_DEPLOYMENT` | `gpt-5.2` | Chat deployment (reasoning model) |
+| `AZURE_OPENAI_CHECKER_DEPLOYMENT` | *(empty)* | Cheap PERFORM/POINT checker; empty = reuse chat |
+| `AZURE_OPENAI_API_VERSION` | `2025-04-01-preview` | gpt-5.x parameters need a recent one |
+| `ANSWER_MAX_COMPLETION_TOKENS` | `4000` | Per-answer cap, including reasoning tokens |
+| `INSTRUCTOR_KEY` | *(empty)* | Gates event creation and analytics |
+| `STORAGE_BACKEND` | `local` | `local` files under `DATA_DIR`, or Azure `blob` |
 | `DATA_DIR` | `./data` | Where local storage writes |
-| `RATE_LIMIT_QUESTIONS` | `10` | Max questions per learner per window (HTTP 429) |
+| `RATE_LIMIT_QUESTIONS` | `10` | Max questions per learner per window → 429 |
 | `RATE_LIMIT_WINDOW_SECONDS` | `600` | Sliding-window size |
-| `EVENT_TOKEN_BUDGET` | `2000000` | Total tokens per event (HTTP 402) |
+| `EVENT_TOKEN_BUDGET` | `2000000` | Total tokens per event → 402 |
 
-## Troubleshooting
+</details>
 
-| Symptom | Cause and fix |
+<details>
+<summary><b>Troubleshooting</b></summary>
+
+| Symptom | Fix |
 |---|---|
-| `⬇ sidecar.zip` returns 404 | The sidecar has not been built yet — run `pwsh sidecar/build.ps1`. |
-| Ingest succeeds but captions read "captioning disabled" | `AZURE_OPENAI_ENDPOINT` is not set. Fine for exploring; set the Step 3 variables for real captions. |
-| `401 bad instructor key` when creating an event | `INSTRUCTOR_KEY` is set on the server — pass the same key in the portal. |
-| Port 8000 or 9000 already in use | Stop the other process, or pass a different `--port` to uvicorn (and update the endpoint everywhere you pasted it). |
-| `go: command not found` when building the sidecar | Install Go and make sure it is on `PATH` (`$env:Path = "C:\Program Files\Go\bin;$env:Path"`). |
+| `⬇ sidecar.zip` returns 404 | The sidecar hasn't been built — run `pwsh sidecar/build.ps1`. |
+| Captions read "captioning disabled" | Azure OpenAI variables not set. Fine while exploring; set them for real captions. |
+| `401 bad instructor key` | `INSTRUCTOR_KEY` is set on the server — pass the same key in the portal. |
+| Port 8000/9000 already in use | Stop the other process or pass a different `--port` (update pasted endpoints). |
+| `go: command not found` | `$env:Path = "C:\Program Files\Go\bin;$env:Path"` |
 
-## How it behaves (design highlights)
+</details>
 
-### Ingest preview and the lab cache
+<details>
+<summary><b>Repository layout</b></summary>
 
-Ingest is a two-step flow: **Preview** parses and validates the masterdoc
-(clear 422 on anything that isn't one) and pops up the exact ordered file list
-the ingest would fetch — only `Files[]` entries from the masterdoc are ever
-pulled, never the rest of the repo. After **Confirm & Ingest**, the enriched
-guide is cached per lab: the lab's identity is a hash of its file-URL list
-(stable forever), versioned by a content hash of the fetched markdown. Running
-the same lab for a new cohort reuses the cache instantly (zero captioning
-cost); an updated guide is detected automatically, re-ingested once, and
-**overwrites** the old cache entry — one small text blob per lab, ever.
+| Folder | What it is |
+|---|---|
+| `orchestrator/` | FastAPI service — portal, ingestion, Q&A API, analytics |
+| `sidecar/` | Go agent + embedded chat UI for learner VMs |
+| `scripts/` | CloudLabs integration pieces + fake lab-guide server |
+| `infra/` | Bicep for `azd up` (App Service + Azure OpenAI + Storage) |
+| `reference-guide/` | Sample lab guide used by the local demo |
+| `docs/` | Design spec, plans, and README images |
 
-### MS Learn deepening (`LEARN_MORE`)
+</details>
 
-MS Learn search excerpts accompany every question. When neither the guide nor
-the excerpts cover an Azure/product question — or the portal has changed and
-the guide's steps no longer match what the learner sees — the model ends its
-draft with a `LEARN_MORE: <query>` marker (same marker-protocol pattern as
-`ANNOTATE`). The orchestrator then fetches the **full article** from
-`learn.microsoft.com` (hard domain allowlist), and asks the model to re-answer
-from it — once, never looping, fully metered. The marker never reaches the
-learner; if the fetch fails, the original "the guide doesn't cover this"
-answer is returned.
-
-### Graduated hinting
-
-The "guide, don't solve" rule is structural, not just prompt text. Each
-learner's asks are counted per task (`hints/{deployment_id}.json`): the first
-ask gets a conceptual nudge, the second a narrower pointer, the third onward a
-full step reference with reasoning — but never resolved `<inject .../>` values
-or a copy-pasteable complete solution. A cheap second LLM pass classifies every
-draft as PERFORM or POINT (`AZURE_OPENAI_CHECKER_DEPLOYMENT`, falls back to the
-chat deployment); a PERFORM draft is regenerated once. A hard post-filter
-strips any `<inject .../>` tag from answers regardless of what the model does.
-
-### Abuse limits
-
-The event key ships in plaintext on learner VMs, so `/api/query` gates before
-spending tokens, computed from the existing `usage.jsonl` (see the
-configuration table above for the three limit variables). The sidecar UI shows
-friendly messages for both the rate limit (429) and the token budget (402).
-
-### Instructor analytics
-
-Every answered question appends a row to `analytics.jsonl` (task ref, question,
-hint level, checker flag — never the answer or screenshots). The portal's
-**Live event pulse** card polls `GET /api/events/{id}/analytics` (instructor
-key) every 10 seconds: headline numbers, a per-task bar list (🔥 = learners
-needed repeated hints there), and a recent-questions feed.
-
-### Screen companion
-
-Answers can include an annotated guide screenshot (rendered in the chat with a
-caption, click to open full size), and the "Include my screen" toggle sends a
-one-shot capture of the VM's screen with the question. If capture fails, the
-question is still sent text-only. When a screen is attached, the model also
-compares where the learner *actually is* against the step their question is
-about (using the guide's ingest-time screenshot captions as the expected
-state) and flags "you're in the wrong place" before answering — and it never
-guesses a mismatch it can't see.
-
-### Prompt caching
-
-Azure OpenAI caches prompt prefixes automatically (gpt-4o and newer, prefix
-≥ 1024 tokens) when the prefix is **byte-identical** across requests. All
-learners in an event share one enriched guide, so the system message is
-ordered: static rules → guide → MS Learn results → hint block. Never put
-per-request content (learn results, hint level, timestamps) before the guide —
-that breaks the shared prefix and every query pays full input price.
-`usage.jsonl` rows carry `tokens_cached`; expect it ≈ guide size on every
-request after the first within a ~5–10 minute window.
+---
 
 ## Tests
 
 ```bash
-# orchestrator
-cd orchestrator && python -m pytest tests/ -v
-
-# sidecar (needs Go on PATH)
-cd sidecar
-$env:Path = "C:\Program Files\Go\bin;$env:Path"   # PowerShell
-# export PATH="/c/Program Files/Go/bin:$PATH"     # bash
-go test ./...
+cd orchestrator && python -m pytest tests/ -v    # orchestrator
+cd sidecar && go test ./...                       # sidecar (Go on PATH)
 ```
