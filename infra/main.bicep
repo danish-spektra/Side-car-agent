@@ -36,7 +36,7 @@ resource openai 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
 resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2023-05-01' = {
   parent: openai
   name: chatDeploymentName
-  sku: { name: 'Standard', capacity: 50 }
+  sku: { name: 'GlobalStandard', capacity: 50 }
   properties: {
     model: { format: 'OpenAI', name: chatModelName, version: chatModelVersion }
   }

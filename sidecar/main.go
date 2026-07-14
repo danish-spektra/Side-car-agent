@@ -47,6 +47,7 @@ func newAskHandler(cfg Config, client *http.Client, capture func() (string, erro
 		var in struct {
 			Question      string `json:"question"`
 			IncludeScreen bool   `json:"include_screen"`
+			ScreenB64     string `json:"screen_b64"` // frame picked in the browser (tab/window/screen)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -57,7 +58,9 @@ func newAskHandler(cfg Config, client *http.Client, capture func() (string, erro
 			"deployment_id": cfg.DeploymentID,
 			"question":      in.Question,
 		}
-		if in.IncludeScreen && capture != nil {
+		if in.ScreenB64 != "" {
+			body["screen_b64"] = in.ScreenB64
+		} else if in.IncludeScreen && capture != nil {
 			if b64, err := capture(); err == nil {
 				body["screen_b64"] = b64
 			} else {

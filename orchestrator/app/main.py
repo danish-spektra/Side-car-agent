@@ -6,7 +6,7 @@ import secrets
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -106,7 +106,11 @@ def _load_masterdoc(req: IngestRequest):
         if not req.masterdoc_url:
             raise HTTPException(422, "masterdoc or masterdoc_url required")
         try:
-            masterdoc = json.loads(app.state.fetch(req.masterdoc_url).decode("utf-8"))
+            raw = app.state.fetch(req.masterdoc_url).decode("utf-8")
+            # CloudLabs masterdocs ship with trailing commas (e.g. the public
+            # masterdoc-v2.json); strip them so strict json.loads doesn't 422.
+            raw = re.sub(r",(\s*[\]}])", r"\1", raw)
+            masterdoc = json.loads(raw)
         except Exception as e:
             raise HTTPException(422, f"could not fetch/parse masterdoc URL: {e}")
     try:
@@ -122,13 +126,44 @@ def preview_endpoint(event_id: str, req: IngestRequest,
     _check_event(event_id, x_event_key)
     return ingest_mod.parse_masterdoc(_load_masterdoc(req))
 
-@app.post("/api/events/{event_id}/ingest")
+def _run_ingest(event_id: str, masterdoc):
+    """Captioning a full guide (100+ images, bounded by OpenAI TPM) runs for
+    minutes — far past App Service's 230s request timeout. So ingest runs here
+    as a background task and the portal polls GET /api/events/{id} for status."""
+    st = app.state.storage
+    try:
+        stats = ingest_mod.ingest_event(st, app.state.fetch,
+                                        app.state.caption_fn, event_id, masterdoc)
+        ev = get_event(st, event_id)  # ingest_event already set status="ready"
+        ev["ingest_stats"] = stats
+        ev.pop("ingest_error", None)
+    except Exception as e:
+        log.exception("ingest failed for %s", event_id)
+        ev = get_event(st, event_id) or {"event_id": event_id}
+        ev["status"] = "error"
+        ev["ingest_error"] = str(e)
+    st.save_text(event_id, "event.json", json.dumps(ev))
+
+@app.post("/api/events/{event_id}/ingest", status_code=202)
 def ingest_endpoint(event_id: str, req: IngestRequest,
+                    background_tasks: BackgroundTasks,
                     x_event_key: str = Header(default="")):
     _check_event(event_id, x_event_key)
-    masterdoc = _load_masterdoc(req)
-    return ingest_mod.ingest_event(app.state.storage, app.state.fetch,
-                                   app.state.caption_fn, event_id, masterdoc)
+    masterdoc = _load_masterdoc(req)  # validate synchronously so a bad URL still 422s
+    ev = get_event(app.state.storage, event_id)
+    ev["status"] = "ingesting"
+    ev.pop("ingest_error", None)
+    app.state.storage.save_text(event_id, "event.json", json.dumps(ev))
+    background_tasks.add_task(_run_ingest, event_id, masterdoc)
+    return {"status": "ingesting"}
+
+@app.get("/api/events/{event_id}")
+def get_event_endpoint(event_id: str, x_event_key: str = Header(default="")):
+    _check_event(event_id, x_event_key)
+    ev = get_event(app.state.storage, event_id)
+    return {"status": ev.get("status"),
+            "stats": ev.get("ingest_stats"),
+            "error": ev.get("ingest_error")}
 
 @app.get("/api/events/{event_id}/analytics")
 def analytics_endpoint(event_id: str, x_instructor_key: str = Header(default="")):

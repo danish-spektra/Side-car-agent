@@ -37,11 +37,19 @@ def test_create_event_instructor_gate(client, monkeypatch):
 
 def test_ingest_via_masterdoc_url(client):
     ev = client.post("/api/events", json={"name": "d"}).json()
+    # ingest is accepted (202) and runs as a background task; TestClient runs
+    # the background task before returning, so status is ready right after.
     r = client.post(f"/api/events/{ev['event_id']}/ingest",
                     json={"masterdoc_url": "https://x/masterdoc.json"},
                     headers={"X-Event-Key": ev["key"]})
-    assert r.status_code == 200
-    assert r.json() == {"files": 1, "images": 1, "cached": False}
+    assert r.status_code == 202
+    assert r.json() == {"status": "ingesting"}
+    s = client.get(f"/api/events/{ev['event_id']}",
+                   headers={"X-Event-Key": ev["key"]})
+    assert s.status_code == 200
+    assert s.json() == {"status": "ready",
+                        "stats": {"files": 1, "images": 1, "cached": False},
+                        "error": None}
 
 def test_ingest_wrong_key_401(client):
     ev = client.post("/api/events", json={"name": "d"}).json()
