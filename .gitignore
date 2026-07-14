@@ -60,7 +60,11 @@ build-iPhoneSimulator/
 reference-guide/
 reference-scripts/
 docs/superpower/specs/
+instructor-demo/
 user-demo/
+
+# go
+sidecar/sidecar.exe
 
 # python
 __pycache__/

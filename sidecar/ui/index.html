@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lab Assistant</title>
+<title>CloudLabs Lab Assistant</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -55,7 +55,10 @@ html, body { height: 100%; }
 body {
   margin: 0;
   font-family: Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image: radial-gradient(900px 480px at 72% -8%, var(--aurora-2), transparent 70%),
+                    radial-gradient(700px 420px at -8% 55%, var(--aurora-1), transparent 70%);
+  background-attachment: fixed;
   color: var(--text);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
@@ -68,7 +71,7 @@ body::before, body::after {
   position: fixed;
   z-index: -1;
   border-radius: 50%;
-  filter: blur(80px);
+  filter: blur(90px);
   pointer-events: none;
 }
 body::before {
@@ -82,12 +85,13 @@ body::after {
   background: radial-gradient(circle, var(--aurora-2), transparent 65%);
 }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
 
 header {
   flex: none;
   background: var(--surface);
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
-  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  backdrop-filter: blur(22px) saturate(1.5);
   border-bottom: 1px solid var(--glass-border);
   box-shadow: var(--shadow);
   position: relative;
@@ -106,19 +110,25 @@ header {
 }
 .mark {
   flex: none;
-  width: 38px; height: 38px;
-  border-radius: 11px;
+  width: 40px; height: 40px;
+  border-radius: 12px;
   background: var(--accent-grad);
   display: flex; align-items: center; justify-content: center;
-  font-size: 1.15rem;
-  box-shadow: 0 4px 14px var(--ring);
+  box-shadow: 0 5px 16px var(--ring);
 }
+.mark svg { width: 23px; height: 23px; }
 .title-block h1 {
   font-family: Sora, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: -.015em;
   margin: 0;
+}
+.title-block h1 .grad {
+  background: var(--accent-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 .title-block .tagline {
   font-size: .78rem;
@@ -177,11 +187,12 @@ main {
   border-radius: 999px;
   padding: .45rem .95rem;
   cursor: pointer;
-  transition: border-color .15s, background .15s;
+  transition: border-color .15s, background .15s, transform .15s;
 }
-.chip:hover { border-color: var(--accent); }
+.chip:hover { border-color: var(--accent); transform: translateY(-1px); }
 
-.msg { display: flex; flex-direction: column; max-width: 85%; }
+.msg { display: flex; flex-direction: column; max-width: 85%; animation: rise .25s ease both; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .msg.user { align-self: flex-end; align-items: flex-end; }
 .msg.assistant { align-self: flex-start; align-items: flex-start; }
 .bubble {
@@ -260,28 +271,6 @@ span.src-pill:hover { border-color: var(--border); }
   margin-top: .3rem;
 }
 
-.screen-toggle {
-  flex: none;
-  font: inherit;
-  font-size: .8rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: .45rem .8rem;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: border-color .15s, background .15s, color .15s;
-}
-.screen-toggle:hover { border-color: var(--accent); }
-.screen-toggle.on {
-  color: #fff;
-  background: var(--accent-grad);
-  border-color: transparent;
-  box-shadow: 0 0 0 3px var(--ring);
-}
-
 .typing { display: inline-flex; gap: .3rem; align-items: center; padding: .35rem 0; }
 .typing span {
   width: 7px; height: 7px;
@@ -296,18 +285,100 @@ span.src-pill:hover { border-color: var(--border); }
 .composer {
   flex: none;
   background: var(--surface);
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
-  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  backdrop-filter: blur(22px) saturate(1.5);
   border-top: 1px solid var(--glass-border);
 }
 .composer-inner {
   max-width: 760px;
   margin: 0 auto;
   padding: .85rem 1.25rem 1.1rem;
+}
+.composer-row {
   display: flex;
   gap: .6rem;
   align-items: flex-end;
 }
+
+/* capture tray — shows exactly what will ride along with the next question */
+.capture-tray {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: .5rem .65rem;
+  margin-bottom: .65rem;
+  animation: rise .25s ease both;
+}
+.capture-tray img {
+  flex: none;
+  width: 86px; height: 52px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 2px 8px var(--ring);
+}
+.capture-tray .ph {
+  flex: none;
+  width: 86px; height: 52px;
+  border-radius: 8px;
+  background: var(--accent-grad);
+  display: flex; align-items: center; justify-content: center;
+}
+.capture-tray .ph svg { width: 22px; height: 22px; }
+.capture-meta { min-width: 0; }
+.capture-meta strong {
+  display: block;
+  font-size: .82rem;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.capture-meta span { font-size: .72rem; color: var(--text-muted); }
+.capture-remove {
+  margin-left: auto;
+  flex: none;
+  font: inherit;
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.capture-remove:hover { color: var(--danger); border-color: var(--danger); }
+
+.screen-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  font: inherit;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: .45rem .8rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.screen-toggle svg { width: 15px; height: 15px; }
+.screen-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.screen-toggle.on {
+  color: #fff;
+  background: var(--accent-grad);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
 textarea {
   flex: 1;
   font: inherit;
@@ -342,6 +413,10 @@ textarea:disabled { opacity: .6; }
 #send:active:not(:disabled) { transform: translateY(1px); }
 #send:disabled { opacity: .55; cursor: not-allowed; }
 
+@media (prefers-reduced-motion: reduce) {
+  .msg, .capture-tray { animation: none; }
+  .chip:hover { transform: none; }
+}
 @media (max-width: 560px) {
   .msg { max-width: 95%; }
   .welcome { padding: 1.2rem 1.25rem; }
@@ -351,9 +426,14 @@ textarea:disabled { opacity: .6; }
 <body>
 <header>
   <div class="header-inner">
-    <div class="mark" aria-hidden="true">&#x1F6DF;</div>
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17.5 19a4.5 4.5 0 0 0 .42-8.98 6 6 0 0 0-11.7 1.6A3.5 3.5 0 0 0 6.5 19h11z"/>
+        <path d="M9.5 13.5l2 2 3.5-3.5"/>
+      </svg>
+    </div>
     <div class="title-block">
-      <h1>Lab Assistant</h1>
+      <h1>CloudLabs <span class="grad">Lab Assistant</span></h1>
       <p class="tagline">grounded in your lab guide</p>
     </div>
   </div>
@@ -363,7 +443,7 @@ textarea:disabled { opacity: .6; }
   <div class="thread" id="thread">
     <div class="welcome" id="welcome">
       <h2>Stuck? <span class="grad">Ask away.</span></h2>
-      <p>Answers come from <em>your</em> lab guide and MS Learn. I explain and point — I won't do the steps for you.</p>
+      <p>Answers come from <em>your</em> lab guide and MS Learn. I explain and point &mdash; I won't do the steps for you.</p>
       <div class="chips">
         <button class="chip" onclick="suggest(this)">I'm stuck on Task 2</button>
         <button class="chip" onclick="suggest(this)">Where do I find the option mentioned in Exercise 1?</button>
@@ -375,10 +455,26 @@ textarea:disabled { opacity: .6; }
 
 <div class="composer">
   <div class="composer-inner">
-    <button id="screen-toggle" class="screen-toggle" onclick="toggleScreen()" aria-pressed="false"
-      title="Sends a one-time screenshot of this VM's screen with your question">&#x1F5A5; Include my screen</button>
-    <textarea id="q" rows="1" placeholder="Ask about your lab&hellip;" autofocus></textarea>
-    <button id="send" onclick="ask()">Ask</button>
+    <div class="capture-tray" id="capture-tray" hidden>
+      <img id="capture-thumb" alt="Preview of the screen you attached" hidden>
+      <div class="ph" id="capture-ph" hidden aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      </div>
+      <div class="capture-meta">
+        <strong id="capture-label">Screen attached</strong>
+        <span>Sent with your next question, then discarded</span>
+      </div>
+      <button class="capture-remove" onclick="clearCapture()" aria-label="Remove attached screen">&#x2715;</button>
+    </div>
+    <div class="composer-row">
+      <button id="screen-toggle" class="screen-toggle" onclick="captureScreenClick()" aria-pressed="false"
+        title="Pick a browser tab, window, or screen to attach to your next question">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        <span id="screen-toggle-label">Attach my screen</span>
+      </button>
+      <textarea id="q" rows="1" placeholder="Ask about your lab&hellip;" autofocus></textarea>
+      <button id="send" onclick="ask()">Ask</button>
+    </div>
   </div>
 </div>
 
@@ -409,12 +505,62 @@ function add(role, html) {
   return div;
 }
 
-let includeScreen = false;
-function toggleScreen() {
-  includeScreen = !includeScreen;
+// --- screen capture ---------------------------------------------------
+// Preferred path: getDisplayMedia shows the browser's native picker so the
+// learner chooses a tab, window, or whole screen and sees a preview here.
+// Fallback (no getDisplayMedia, e.g. embedded webview): flag the request so
+// the sidecar captures the VM's primary display server-side.
+let screenB64 = null;   // frame captured in the browser
+let vmFallback = false; // server-side capture requested instead
+
+const SURFACE_NAMES = { browser: 'Browser tab', window: 'Window', monitor: 'Entire screen' };
+
+async function captureScreenClick() {
+  if (screenB64 || vmFallback) { clearCapture(); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    vmFallback = true;
+    showTray(null, "This VM's screen");
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    const track = stream.getVideoTracks()[0];
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    await new Promise(res => { video.onloadeddata = res; video.play(); });
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    stream.getTracks().forEach(t => t.stop()); // one frame only — never a live share
+    const dataUrl = canvas.toDataURL('image/png');
+    screenB64 = dataUrl.split(',')[1];
+    const surface = (track.getSettings && track.getSettings().displaySurface) || '';
+    showTray(dataUrl, SURFACE_NAMES[surface] || track.label || 'Screen');
+  } catch (e) { /* learner cancelled the picker — nothing attached */ }
+}
+
+function showTray(thumbUrl, label) {
+  $('capture-thumb').hidden = !thumbUrl;
+  $('capture-ph').hidden = !!thumbUrl;
+  if (thumbUrl) $('capture-thumb').src = thumbUrl;
+  $('capture-label').textContent = label + ' attached';
+  $('capture-tray').hidden = false;
   const t = $('screen-toggle');
-  t.classList.toggle('on', includeScreen);
-  t.setAttribute('aria-pressed', includeScreen);
+  t.classList.add('on');
+  t.setAttribute('aria-pressed', 'true');
+  $('screen-toggle-label').textContent = 'Screen attached';
+}
+
+function clearCapture() {
+  screenB64 = null;
+  vmFallback = false;
+  $('capture-tray').hidden = true;
+  $('capture-thumb').removeAttribute('src');
+  const t = $('screen-toggle');
+  t.classList.remove('on');
+  t.setAttribute('aria-pressed', 'false');
+  $('screen-toggle-label').textContent = 'Attach my screen';
 }
 
 function openAnnotation(img) {
@@ -440,18 +586,20 @@ async function ask() {
   if (welcome) welcome.remove();
   $('q').value = '';
   $('q').style.height = 'auto';
-  const withScreen = includeScreen;
-  if (withScreen) toggleScreen(); // one-shot: reset after send
+  const b64 = screenB64, fallback = vmFallback;
+  clearCapture(); // one-shot: reset after send
   add('user', '<div class="bubble">' + esc(q) + '</div>' +
-    (withScreen ? '<span class="screen-badge">&#x1F5A5; screen attached</span>' : ''));
+    (b64 || fallback ? '<span class="screen-badge">&#x1F5A5; screen attached</span>' : ''));
   const wait = add('assistant',
     '<div class="bubble"><span class="typing"><span></span><span></span><span></span></span></div>');
   setBusy(true);
   try {
+    const payload = { question: q, include_screen: fallback };
+    if (b64) payload.screen_b64 = b64;
     const r = await fetch('/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: q, include_screen: withScreen })
+      body: JSON.stringify(payload)
     });
     let body = null;
     try { body = await r.json(); } catch {}

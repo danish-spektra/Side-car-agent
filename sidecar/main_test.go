@@ -85,6 +85,32 @@ func TestAskHandlerIncludesScreen(t *testing.T) {
 	}
 }
 
+func TestAskHandlerPrefersClientFrame(t *testing.T) {
+	var gotBody map[string]any
+	orch := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		json.Unmarshal(b, &gotBody)
+		w.Write([]byte(`{"answer":"ok"}`))
+	}))
+	defer orch.Close()
+
+	cfg := Config{Endpoint: orch.URL, EventID: "ev1", Key: "k1", DeploymentID: "dep-9"}
+	captureCalled := false
+	capture := func() (string, error) { captureCalled = true; return "dm0tZnJhbWU=", nil }
+	h := newAskHandler(cfg, orch.Client(), capture)
+	req := httptest.NewRequest("POST", "/ask",
+		strings.NewReader(`{"question":"which tab","screen_b64":"dGFiLWZyYW1l","include_screen":true}`))
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if gotBody["screen_b64"] != "dGFiLWZyYW1l" {
+		t.Fatalf("screen_b64 = %v, want the browser-picked frame", gotBody["screen_b64"])
+	}
+	if captureCalled {
+		t.Fatal("server-side capture ran even though the browser sent a frame")
+	}
+}
+
 func TestAskHandlerCaptureErrorDegradesToTextOnly(t *testing.T) {
 	var gotBody map[string]any
 	orch := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
