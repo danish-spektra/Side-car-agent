@@ -1,6 +1,6 @@
 <div align="center">
 
-# ☁️ CloudLabs Lab Assistant
+# ☁️ Passenger Lab Assistant
 
 **A tutor inside every lab VM — grounded in the lab's own guide, incapable of doing the lab for the learner.**
 
