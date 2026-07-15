@@ -15,6 +15,24 @@
 
 ---
 
+## Not a mock-up — this runs *inside* the CloudLabs lab VM
+
+No separate app, no second tab to alt-tab to. The assistant lives in the same
+sandbox the learner is graded in: their browser on the left, the CloudLabs lab
+guide panel (**Guide · Environment · Resources · Validate**) on the right. Ask
+a question, click **Attach my screen**, and it answers against the *actual*
+Azure portal state in front of them — while the lab is running, not after.
+
+<p align="center">
+  <img src="docs/images/cloudlabs-vm.png" alt="The Lab Assistant running inside a live CloudLabs lab VM, side-by-side with the CloudLabs lab guide panel" width="960">
+</p>
+
+That side-by-side is the whole point: it ships as one desktop shortcut baked
+into the lab template (see *Wiring it into a real CloudLabs lab* below), so
+every learner gets a proctor in the VM with zero setup.
+
+---
+
 ## The gap
 
 Every hands-on lab has the same failure mode: a learner hits a wall at Task 3,
